@@ -1,6 +1,13 @@
 import { useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Switch } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 export default function SettingsScreen() {
   const [confidence, setConfidence] = useState("0.85");
@@ -42,9 +49,15 @@ export default function SettingsScreen() {
           <View style={styles.switchRow}>
             <View>
               <Text style={styles.switchLabel}>Auto Retrain</Text>
-              <Text style={styles.switchDesc}>Otomatis retrain model setiap minggu</Text>
+              <Text style={styles.switchDesc}>
+                Otomatis retrain model setiap minggu
+              </Text>
             </View>
-            <Switch value={autoRetrain} onValueChange={setAutoRetrain} trackColor={{ true: "#2563eb" }} />
+            <Switch
+              value={autoRetrain}
+              onValueChange={setAutoRetrain}
+              trackColor={{ true: "#2563eb" }}
+            />
           </View>
         </View>
       </View>
@@ -55,9 +68,15 @@ export default function SettingsScreen() {
           <View style={styles.switchRow}>
             <View>
               <Text style={styles.switchLabel}>Push Notifications</Text>
-              <Text style={styles.switchDesc}>Notifikasi deteksi defect dan error sistem</Text>
+              <Text style={styles.switchDesc}>
+                Notifikasi deteksi defect dan error sistem
+              </Text>
             </View>
-            <Switch value={notifications} onValueChange={setNotifications} trackColor={{ true: "#2563eb" }} />
+            <Switch
+              value={notifications}
+              onValueChange={setNotifications}
+              trackColor={{ true: "#2563eb" }}
+            />
           </View>
         </View>
       </View>
@@ -73,7 +92,12 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16, paddingBottom: 32 },
   section: { marginBottom: 20 },
-  sectionTitle: { fontSize: 16, fontFamily: "Poppins_600SemiBold", color: "#111827", marginBottom: 10 },
+  sectionTitle: {
+    fontSize: 16,
+    fontFamily: "Poppins_600SemiBold",
+    color: "#111827",
+    marginBottom: 10,
+  },
   card: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -103,8 +127,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  switchLabel: { fontSize: 15, fontFamily: "Poppins_500Medium", color: "#111827" },
-  switchDesc: { fontSize: 12, fontFamily: "Poppins_400Regular", color: "#6b7280", marginTop: 2 },
+  switchLabel: {
+    fontSize: 15,
+    fontFamily: "Poppins_500Medium",
+    color: "#111827",
+  },
+  switchDesc: {
+    fontSize: 12,
+    fontFamily: "Poppins_400Regular",
+    color: "#6b7280",
+    marginTop: 2,
+  },
   saveBtn: {
     backgroundColor: "#2563eb",
     borderRadius: 14,
