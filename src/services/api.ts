@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as storage from "@/services/storage";
 import { Platform } from "react-native";
 
 export const AUTH_TOKEN_KEY = "sortvision.auth.token";
@@ -89,7 +89,7 @@ export async function apiRequest<T = unknown>(
   const headers = new Headers(options.headers ?? {});
   headers.set("Accept", "application/json");
 
-  const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  const token = await storage.getItemAsync(AUTH_TOKEN_KEY);
   if (token && options.auth !== false) {
     headers.set("Authorization", `Bearer ${token}`);
   }

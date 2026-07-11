@@ -1,5 +1,5 @@
 import { apiRequest, AUTH_TOKEN_KEY } from "@/services/api";
-import * as SecureStore from "expo-secure-store";
+import * as storage from "@/services/storage";
 
 type User = {
   id: number;
@@ -33,19 +33,19 @@ export async function persistAuthSession(
   user: User,
   role: string,
 ) {
-  await SecureStore.setItemAsync(AUTH_TOKEN_KEY, token);
-  await SecureStore.setItemAsync(AUTH_USER_KEY, JSON.stringify(user));
-  await SecureStore.setItemAsync(AUTH_ROLE_KEY, role);
+  await storage.setItemAsync(AUTH_TOKEN_KEY, token);
+  await storage.setItemAsync(AUTH_USER_KEY, JSON.stringify(user));
+  await storage.setItemAsync(AUTH_ROLE_KEY, role);
 }
 
 export async function getStoredAuthSession(): Promise<AuthSession | null> {
-  const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  const token = await storage.getItemAsync(AUTH_TOKEN_KEY);
   if (!token) {
     return null;
   }
 
-  const userRaw = await SecureStore.getItemAsync(AUTH_USER_KEY);
-  const role = (await SecureStore.getItemAsync(AUTH_ROLE_KEY)) ?? "User";
+  const userRaw = await storage.getItemAsync(AUTH_USER_KEY);
+  const role = (await storage.getItemAsync(AUTH_ROLE_KEY)) ?? "User";
   const user = userRaw ? JSON.parse(userRaw) : null;
 
   return {
@@ -56,9 +56,9 @@ export async function getStoredAuthSession(): Promise<AuthSession | null> {
 }
 
 export async function clearStoredAuthSession() {
-  await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
-  await SecureStore.deleteItemAsync(AUTH_USER_KEY);
-  await SecureStore.deleteItemAsync(AUTH_ROLE_KEY);
+  await storage.deleteItemAsync(AUTH_TOKEN_KEY);
+  await storage.deleteItemAsync(AUTH_USER_KEY);
+  await storage.deleteItemAsync(AUTH_ROLE_KEY);
 }
 
 export async function loginWithEmail(email: string, password: string) {
