@@ -11,6 +11,19 @@ const DEFAULT_API_BASE_URL =
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ?? DEFAULT_API_BASE_URL;
 
+/** Error yang membawa HTTP status code supaya service layer bisa membedakan 404/501 dsb. */
+export class ApiError extends Error {
+  status: number;
+  payload: unknown;
+
+  constructor(message: string, status: number, payload: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 type ApiRequestOptions = {
@@ -111,7 +124,11 @@ export async function apiRequest<T = unknown>(
       unauthorizedHandler?.();
     }
 
-    throw new Error(extractErrorMessage(payload));
+    throw new ApiError(
+      extractErrorMessage(payload),
+      response.status,
+      payload,
+    );
   }
 
   return payload as T;

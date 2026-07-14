@@ -89,3 +89,47 @@ Pindah ke Opsi B jika salah satu kondisi berikut terjadi pada Opsi A (baik varia
 
 - Opsi A tetap menjadi arsitektur utama karena lebih sesuai dengan kapasitas masing-masing perangkat (ESP32 = eksekusi real-time, Jetson/backend = komputasi AI/planning).
 - Dokumen ini akan diperbarui jika ada perubahan skema komunikasi atau jika tim benar-benar berpindah ke Opsi B.
+
+## Keputusan implementasi mobile app (Opsi A tanpa Jetson) — sesi 2026-07-14
+
+Bagian ini mencatat keputusan teknis saat menyambungkan mobile app (`Mobile-Apps-SortVision`, branch `rasya/robot-com`) ke backend. Tidak menimpa histori di atas.
+
+### Command lewat REST, bukan publish MQTT langsung dari mobile
+
+- Command arm (start/stop sorting, kirim ke zona) dikirim mobile lewat **REST** ke backend
+  (`POST /arm/command`, usulan — lihat `API_CONTRACT.md`), **bukan** publish langsung ke broker.
+- Alasan: resolusi `TargetZonePreset` (kategori produk → `joint_angles`) ada di Laravel
+  (`ArmMqttService::buildCommandPayload`). Kalau mobile publish langsung, logika itu harus
+  diduplikasi di mobile (rawan drift) dan broker harus mengekspos kredensial publish ke banyak
+  client. Backend tetap **satu-satunya publisher** `arm/command`.
+- Telemetry (`arm/status`, `arm/detection`) bersifat read-only, jadi mobile boleh subscribe
+  langsung untuk update lebih realtime — tapi ini enhancement opsional dengan fallback REST.
+
+### Library MQTT: implementasi sendiri (zero-dependency) di atas WebSocket
+
+- **Pilihan akhir:** menulis client MQTT 3.1.1 **subscribe-only** sendiri di
+  `src/services/mqttClient.ts`, murni memakai global `WebSocket` + `Uint8Array`/`ArrayBuffer`.
+- **Kenapa bukan `mqtt` (mqtt.js):** butuh polyfill Node core (`stream`, `Buffer`, `events`) yang
+  rapuh dan sering gagal bundle di Metro/Hermes pada Expo managed (SDK 57) tanpa dev-client.
+- **Kenapa bukan `paho-mqtt`:** mengasumsikan global browser (`window`, `localStorage`) yang tidak
+  ada di React Native, sehingga butuh shim tambahan.
+- **Keuntungan implementasi sendiri:** surface protokol kecil (CONNECT, SUBSCRIBE, PUBLISH-in,
+  PING, DISCONNECT) karena kita hanya subscribe; **selalu bundel bersih**, tidak ada native binding,
+  `npx expo start` (Expo Go / web) tetap jalan. Reconnect pakai backoff (2s→4s→8s→16s→30s, cap,
+  lalu diam dan andalkan REST polling).
+- Kalau ke depan butuh fitur MQTT lebih kompleks (publish, QoS 2, retained handling penuh),
+  pertimbangkan kembali `mqtt`/`paho` dengan konfigurasi Metro yang sesuai.
+
+### Fallback & ketahanan
+
+- Baseline data lewat **REST polling** di `ArmContext` (`GET /status`, `/arm`, `/detections`,
+  tiap 7 detik). Jalan tanpa MQTT sama sekali.
+- MQTT hanya diaktifkan kalau `EXPO_PUBLIC_MQTT_WS_URL` diset; kalau kosong/gagal connect,
+  app tidak crash — otomatis pakai REST. Data MQTT realtime menimpa hasil polling selama masih baru.
+
+### Env var baru
+
+- `EXPO_PUBLIC_MQTT_WS_URL` — URL broker WebSocket (kosong = MQTT nonaktif).
+- `EXPO_PUBLIC_MQTT_BASE_TOPIC` — prefix topik arm (default `arm`).
+- `EXPO_PUBLIC_MQTT_USERNAME` / `EXPO_PUBLIC_MQTT_PASSWORD` — kredensial broker (opsional).
+- Contoh lengkap di `.env.example` (repo mobile). `.env` sudah masuk `.gitignore`.

@@ -4,6 +4,7 @@ import { Stack, usePathname, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Sidebar from "@/components/Sidebar";
+import { ArmProvider } from "@/contexts/ArmContext";
 
 function Topbar({ onMenuPress, title }: { onMenuPress: () => void; title: string }) {
   const insets = useSafeAreaInsets();
@@ -35,6 +36,7 @@ export default function AppLayout() {
     "/(app)/categories": "Categories",
     "/(app)/roles": "Roles & Permission",
     "/(app)/live-camera": "Live Camera",
+    "/(app)/arm-control": "Arm Control",
     "/(app)/training": "Training",
     "/(app)/annotation": "Label & Annotation",
     "/(app)/settings": "Settings",
@@ -45,23 +47,26 @@ export default function AppLayout() {
   const title = pageTitles[pathname] || "SortVision";
 
   return (
-    <View style={styles.root}>
-      <Topbar onMenuPress={() => setSidebarOpen(true)} title={title} />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="dashboard" />
-        <Stack.Screen name="users" />
-        <Stack.Screen name="products" />
-        <Stack.Screen name="categories" />
-        <Stack.Screen name="roles" />
-        <Stack.Screen name="live-camera" />
-        <Stack.Screen name="training" />
-        <Stack.Screen name="annotation" />
-        <Stack.Screen name="settings" />
-        <Stack.Screen name="logs" />
-        <Stack.Screen name="profile" />
-      </Stack>
-      <Sidebar visible={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-    </View>
+    <ArmProvider>
+      <View style={styles.root}>
+        <Topbar onMenuPress={() => setSidebarOpen(true)} title={title} />
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="dashboard" />
+          <Stack.Screen name="users" />
+          <Stack.Screen name="products" />
+          <Stack.Screen name="categories" />
+          <Stack.Screen name="roles" />
+          <Stack.Screen name="live-camera" />
+          <Stack.Screen name="arm-control" />
+          <Stack.Screen name="training" />
+          <Stack.Screen name="annotation" />
+          <Stack.Screen name="settings" />
+          <Stack.Screen name="logs" />
+          <Stack.Screen name="profile" />
+        </Stack>
+        <Sidebar visible={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      </View>
+    </ArmProvider>
   );
 }
 

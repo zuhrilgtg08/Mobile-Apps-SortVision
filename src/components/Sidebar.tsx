@@ -115,6 +115,13 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
       onPress: () => {},
     },
     {
+      icon: "hardware-chip-outline",
+      label: "Arm Control",
+      href: "/(app)/arm-control",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
       icon: "school-outline",
       label: "Training",
       href: "/(app)/training",
