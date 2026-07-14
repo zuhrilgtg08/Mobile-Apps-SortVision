@@ -20,16 +20,22 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("admin@sortvision.id");
   const [password, setPassword] = useState("password");
   const [showPw, setShowPw] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleLogin = async () => {
+    setErrorMessage(null);
     try {
       await login(email, password);
       router.replace("/(app)/dashboard");
     } catch (error) {
-      Alert.alert(
-        "Login gagal",
-        error instanceof Error ? error.message : "Silakan coba lagi.",
-      );
+      const message =
+        error instanceof Error ? error.message : "Silakan coba lagi.";
+      // Tampilkan inline (jalan di web & mobile). Alert native tetap dipakai
+      // sebagai tambahan di iOS/Android; di web react-native-web sering no-op.
+      setErrorMessage(message);
+      if (Platform.OS !== "web") {
+        Alert.alert("Login gagal", message);
+      }
     }
   };
 
@@ -61,7 +67,10 @@ export default function LoginScreen() {
             <TextInput
               style={styles.input}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(t) => {
+                setEmail(t);
+                if (errorMessage) setErrorMessage(null);
+              }}
               placeholder="email@example.com"
               placeholderTextColor="#9ca3af"
               keyboardType="email-address"
@@ -75,7 +84,10 @@ export default function LoginScreen() {
               <TextInput
                 style={[styles.input, { paddingRight: 44 }]}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(t) => {
+                  setPassword(t);
+                  if (errorMessage) setErrorMessage(null);
+                }}
                 placeholder="••••••••"
                 placeholderTextColor="#9ca3af"
                 secureTextEntry={!showPw}
@@ -96,6 +108,13 @@ export default function LoginScreen() {
           <Link href="/forgot-password" style={styles.forgotLink}>
             Lupa password?
           </Link>
+
+          {errorMessage ? (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle-outline" size={18} color="#dc2626" />
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            </View>
+          ) : null}
 
           <Pressable
             style={styles.btn}
@@ -187,6 +206,22 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_500Medium",
     color: "#2563eb",
     marginBottom: 24,
+  },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#fce7e7",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Poppins_500Medium",
+    color: "#dc2626",
   },
   btn: {
     backgroundColor: "#2563eb",
