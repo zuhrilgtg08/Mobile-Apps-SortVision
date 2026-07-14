@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import StatusBadge from "@/components/StatusBadge";
 
 const PERMISSIONS = [
   "Dashboard", "Users", "Products", "Categories",

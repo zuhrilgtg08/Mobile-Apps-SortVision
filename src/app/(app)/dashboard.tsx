@@ -1,10 +1,13 @@
-import { View, Text, StyleSheet, ScrollView, Dimensions } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { View, Text, StyleSheet, ScrollView, RefreshControl } from "react-native";
+import { useCallback, useState } from "react";
 import StatCard from "@/components/StatCard";
 import StatusBadge from "@/components/StatusBadge";
+import { useArm } from "@/contexts/ArmContext";
+import { type DetectionItem } from "@/services/statusApi";
 
-const { width } = Dimensions.get("window");
-
+// TODO: butuh endpoint agregat baru di backend (total scans, defects, accuracy,
+// jumlah kamera aktif). Endpoint /status, /arm, /detections yang ada belum
+// mengekspos angka agregat ini, jadi kartu di bawah masih memakai contoh statis.
 const MOCK_STATS = [
   { title: "Total Scans", value: "12,847", icon: "scan-outline" as const, color: "#2563eb", delta: { value: "12%", positive: true } },
   { title: "Defects", value: "342", icon: "warning-outline" as const, color: "#dc2626", delta: { value: "3%", positive: false } },
@@ -12,23 +15,59 @@ const MOCK_STATS = [
   { title: "Active Cameras", value: "4", icon: "videocam-outline" as const, color: "#ca8a04", subtitle: "from 6 total" },
 ];
 
-const RECENT_DETECTIONS = [
-  { id: "SCN-001", product: "Yogurt Strawberry", status: "Pass", time: "2 menit lalu" },
-  { id: "SCN-002", product: "Susu UHT Coklat", status: "Fail", time: "5 menit lalu" },
-  { id: "SCN-003", product: "Keju Cheddar", status: "Pass", time: "8 menit lalu" },
-  { id: "SCN-004", product: "Yogurt Blueberry", status: "Warning", time: "12 menit lalu" },
-  { id: "SCN-005", product: "Susu Kedelai", status: "Pass", time: "15 menit lalu" },
-];
+function formatRelative(iso: string | null): string {
+  if (!iso) return "-";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return iso;
+  const diff = Date.now() - t;
+  if (diff < 0) return new Date(iso).toLocaleTimeString();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s} detik lalu`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} menit lalu`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} jam lalu`;
+  return new Date(iso).toLocaleString();
+}
+
+function detectionTitle(item: DetectionItem): string {
+  return item.code ?? item.qr_value ?? `Product #${item.product_id ?? "?"}`;
+}
 
 export default function DashboardScreen() {
+  const { status, armState, detections, refresh } = useArm();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await refresh();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [refresh]);
+
+  const recent = detections.slice(0, 5);
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />
+      }
+    >
       <View style={styles.statsRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.greeting}>Selamat datang kembali!</Text>
-          <Text style={styles.date}>Ringkasan QC hari ini</Text>
+          <Text style={styles.date}>
+            {status
+              ? `Server ${status.status === "online" ? "online" : "offline"} • Ringkasan QC hari ini`
+              : "Ringkasan QC hari ini"}
+          </Text>
         </View>
-        <StatusBadge status="Running" />
+        <StatusBadge status={armState?.state ?? "idle"} />
       </View>
 
       <View style={styles.statsGrid}>
@@ -41,6 +80,7 @@ export default function DashboardScreen() {
 
       <View style={styles.chartCard}>
         <Text style={styles.sectionTitle}>Distribusi Deteksi</Text>
+        {/* TODO: butuh endpoint agregat distribusi di backend; sementara statis. */}
         <View style={styles.chartPlaceholder}>
           {["Pass 87%", "Fail 8%", "Warning 5%"].map((item, idx) => {
             const colors = ["#16a34a", "#dc2626", "#ca8a04"];
@@ -57,18 +97,24 @@ export default function DashboardScreen() {
 
       <View style={styles.tableCard}>
         <Text style={styles.sectionTitle}>Deteksi Terbaru</Text>
-        {RECENT_DETECTIONS.map((det, idx) => (
-          <View key={idx} style={[styles.tableRow, idx < RECENT_DETECTIONS.length - 1 && styles.tableRowBorder]}>
-            <View style={styles.tableLeft}>
-              <Text style={styles.tableId}>{det.id}</Text>
-              <Text style={styles.tableProduct}>{det.product}</Text>
+        {recent.length === 0 ? (
+          <Text style={styles.empty}>Belum ada deteksi.</Text>
+        ) : (
+          recent.map((det, idx) => (
+            <View key={`${det.code ?? det.detected_at ?? idx}-${idx}`} style={[styles.tableRow, idx < recent.length - 1 && styles.tableRowBorder]}>
+              <View style={styles.tableLeft}>
+                <Text style={styles.tableId}>{detectionTitle(det)}</Text>
+                <Text style={styles.tableProduct}>
+                  {[det.camera, det.conveyor].filter(Boolean).join(" • ") || "—"}
+                </Text>
+              </View>
+              <View style={styles.tableRight}>
+                {det.status ? <StatusBadge status={det.status} /> : null}
+                <Text style={styles.tableTime}>{formatRelative(det.detected_at)}</Text>
+              </View>
             </View>
-            <View style={styles.tableRight}>
-              <StatusBadge status={det.status} />
-              <Text style={styles.tableTime}>{det.time}</Text>
-            </View>
-          </View>
-        ))}
+          ))
+        )}
       </View>
     </ScrollView>
   );
@@ -125,4 +171,5 @@ const styles = StyleSheet.create({
   tableProduct: { fontSize: 12, fontFamily: "Poppins_400Regular", color: "#6b7280", marginTop: 2 },
   tableRight: { alignItems: "flex-end", gap: 4 },
   tableTime: { fontSize: 11, fontFamily: "Poppins_400Regular", color: "#9ca3af" },
+  empty: { fontSize: 13, fontFamily: "Poppins_400Regular", color: "#9ca3af", paddingVertical: 8 },
 });

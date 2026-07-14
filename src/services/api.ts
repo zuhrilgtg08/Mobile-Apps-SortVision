@@ -11,6 +11,19 @@ const DEFAULT_API_BASE_URL =
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ?? DEFAULT_API_BASE_URL;
 
+/** Error yang membawa HTTP status code supaya service layer bisa membedakan 404/501 dsb. */
+export class ApiError extends Error {
+  status: number;
+  payload: unknown;
+
+  constructor(message: string, status: number, payload: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 type ApiRequestOptions = {
@@ -18,6 +31,12 @@ type ApiRequestOptions = {
   body?: unknown;
   headers?: Record<string, string>;
   auth?: boolean;
+  /**
+   * Jangan panggil global unauthorized handler (redirect ke /login) saat 401.
+   * Dipakai untuk request login: 401 di sini artinya "kredensial salah",
+   * bukan sesi kadaluarsa — biar UI bisa menampilkan error tanpa remount.
+   */
+  suppressUnauthorized?: boolean;
 };
 
 let unauthorizedHandler: (() => void) | null = null;
@@ -107,11 +126,15 @@ export async function apiRequest<T = unknown>(
   const payload = await parseResponseBody(response);
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (response.status === 401 && options.suppressUnauthorized !== true) {
       unauthorizedHandler?.();
     }
 
-    throw new Error(extractErrorMessage(payload));
+    throw new ApiError(
+      extractErrorMessage(payload),
+      response.status,
+      payload,
+    );
   }
 
   return payload as T;
