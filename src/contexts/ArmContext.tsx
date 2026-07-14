@@ -123,13 +123,15 @@ export function ArmProvider({ children }: { children: ReactNode }) {
   const [detections, setDetections] = useState<DetectionItem[]>([]);
   const [isMqttConnected, setIsMqttConnected] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
 
   const isFetchingRef = useRef(false);
   const lastMqttArmAtRef = useRef(0);
   const lastMqttDetectionAtRef = useRef(0);
 
   const isMqttConfigured = MQTT_WS_URL.length > 0;
+  // Derivasi: sedang loading kalau sudah login tapi belum ada data/error pertama.
+  const isLoading =
+    isAuthenticated && status === null && armState === null && lastError === null;
 
   const refresh = useCallback(async () => {
     if (isFetchingRef.current) return;
@@ -176,27 +178,23 @@ export function ArmProvider({ children }: { children: ReactNode }) {
 
   // --- Baseline REST polling (jalan tanpa MQTT sama sekali) ---
   useEffect(() => {
-    if (!isAuthenticated) {
-      setStatus(null);
-      setArmState(null);
-      setDetections([]);
-      setLastError(null);
-      return;
-    }
+    if (!isAuthenticated) return;
 
-    let mounted = true;
-    setIsLoading(true);
-    void refresh().finally(() => {
-      if (mounted) setIsLoading(false);
-    });
-
+    // refresh() hanya menyentuh ref secara sinkron; semua setState terjadi setelah
+    // await, jadi tidak memicu setState sinkron di body effect.
+    void refresh();
     const interval = setInterval(() => {
       void refresh();
     }, POLL_INTERVAL_MS);
 
+    // Cleanup (dijalankan saat logout / unmount): stop polling & bersihkan data
+    // supaya tidak ada sisa data sesi sebelumnya.
     return () => {
-      mounted = false;
       clearInterval(interval);
+      setStatus(null);
+      setArmState(null);
+      setDetections([]);
+      setLastError(null);
     };
   }, [isAuthenticated, refresh]);
 

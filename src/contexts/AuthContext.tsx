@@ -59,27 +59,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setUnauthorizedHandler(null);
   }, [handleUnauthorized]);
 
-  const initialize = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const session = await restoreAuthSession();
-      if (session) {
-        setUser(session.user);
-        setToken(session.token);
-        setRole(session.role);
-      } else {
-        clearSessionState();
-      }
-    } catch {
-      clearSessionState();
-    } finally {
-      setIsLoading(false);
-    }
-  }, [clearSessionState]);
-
+  // Restore sesi tersimpan saat mount. setState dipanggil di dalam callback
+  // Promise (bukan sinkron di body effect) — pola yang direkomendasikan agar
+  // tidak memicu cascading render. isLoading sudah true sebagai initial state.
   useEffect(() => {
-    void initialize();
-  }, [initialize]);
+    let active = true;
+    restoreAuthSession()
+      .then((session) => {
+        if (!active) return;
+        if (session) {
+          setUser(session.user);
+          setToken(session.token);
+          setRole(session.role);
+        } else {
+          clearSessionState();
+        }
+      })
+      .catch(() => {
+        if (active) clearSessionState();
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [clearSessionState]);
 
   const login = useCallback(async (email: string, password: string) => {
     setIsLoading(true);

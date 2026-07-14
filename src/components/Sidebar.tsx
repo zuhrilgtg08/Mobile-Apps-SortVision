@@ -1,7 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -53,8 +53,9 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const translateX = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
-  const overlayOpacity = useRef(new Animated.Value(0)).current;
+  // Lazy init lewat useState supaya nilai Animated stabil tanpa membaca ref.current saat render.
+  const [translateX] = useState(() => new Animated.Value(-SIDEBAR_WIDTH));
+  const [overlayOpacity] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     Animated.parallel([
