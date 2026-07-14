@@ -31,6 +31,12 @@ type ApiRequestOptions = {
   body?: unknown;
   headers?: Record<string, string>;
   auth?: boolean;
+  /**
+   * Jangan panggil global unauthorized handler (redirect ke /login) saat 401.
+   * Dipakai untuk request login: 401 di sini artinya "kredensial salah",
+   * bukan sesi kadaluarsa — biar UI bisa menampilkan error tanpa remount.
+   */
+  suppressUnauthorized?: boolean;
 };
 
 let unauthorizedHandler: (() => void) | null = null;
@@ -120,7 +126,7 @@ export async function apiRequest<T = unknown>(
   const payload = await parseResponseBody(response);
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (response.status === 401 && options.suppressUnauthorized !== true) {
       unauthorizedHandler?.();
     }
 
