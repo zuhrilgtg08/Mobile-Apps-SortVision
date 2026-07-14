@@ -72,6 +72,8 @@ export async function loginWithEmail(email: string, password: string) {
   }>("/auth/login", {
     method: "POST",
     body: { email, password },
+    // 401 di sini = kredensial salah, bukan sesi kadaluarsa: jangan redirect global.
+    suppressUnauthorized: true,
   });
 
   const token = response.token ?? response.access_token ?? response.accessToken;
