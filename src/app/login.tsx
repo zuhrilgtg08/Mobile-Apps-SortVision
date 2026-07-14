@@ -3,21 +3,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 
 export default function LoginScreen() {
   const { login, isLoading } = useAuth();
-  const [email, setEmail] = useState("admin@sortvision.id");
+  const [email, setEmail] = useState("admin@sortvision.test");
   const [password, setPassword] = useState("password");
   const [showPw, setShowPw] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
