@@ -89,6 +89,71 @@ Mobile membaca format bawaan Laravel dan memetakannya ke error per-field di form
 > Field pasti dari `/status` dan `/arm` harus diverifikasi dari response asli saat testing
 > manual — update tabel/skema di atas jika backend berbeda.
 
+## CRUD Resources (Fase 1 — SUDAH ada di backend)
+
+Semua endpoint di bawah butuh `Authorization: Bearer <token>` dan mengembalikan
+amplop yang sama untuk list:
+
+```jsonc
+{
+  "data": [ /* item */ ],
+  "meta": { "current_page": 1, "per_page": 20, "total": 42, "last_page": 3 }
+}
+```
+
+Detail tunggal & hasil create/update dibungkus `{ "message"?: string, "data": {...} }`.
+Query `per_page` berlaku di semua list (default 20, maksimum 100).
+
+| Endpoint                            | Method            | Query / Body                                                       | Catatan                                                             |
+| ----------------------------------- | ----------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `/products`                         | `GET`             | `search`, `status`, `category_id`, `per_page`                       | `status` ∈ `active\|inactive\|archived`                              |
+| `/products`                         | `POST`            | `name*`, `status*`, `stock*`, `category_id`, `description`, `image` | `code` & `sku` digenerate server; QR otomatis dibuat                 |
+| `/products/{id}`                    | `GET`             | —                                                                    |                                                                       |
+| `/products/{id}`                    | `PUT`/`PATCH`     | sama seperti POST                                                    | `code` & `sku` TIDAK pernah berubah                                   |
+| `/products/{id}`                    | `DELETE`          | —                                                                    | ikut menghapus file gambar & QR                                       |
+| `/categories`                       | `GET`             | `search`, `is_active`, `per_page`                                    |                                                                       |
+| `/categories`                       | `POST`            | `name*`, `sort_order*`, `description`, `is_active`, `image`          | `slug` diturunkan dari `name`                                         |
+| `/categories/{id}`                  | `GET`/`PUT`/`DELETE` | —                                                                 | `name` unik                                                           |
+| `/users`                            | `GET`             | `search`, `role`, `per_page`                                         | hash password tidak pernah dikirim                                    |
+| `/users`                            | `POST`            | `name*`, `email*`, `role*`, `password*`, `title`, `is_active`, `avatar` |                                                                    |
+| `/users/{id}`                       | `PUT`/`DELETE`    | `password` opsional saat update                                      | admin terakhir tidak bisa diturunkan/dinonaktifkan/dihapus (`422`)    |
+| `/roles`                            | `GET`             | —                                                                    | `{ roles, modules, access_levels, matrix }`                           |
+| `/roles`                            | `PUT`             | `permissions[]: {role, module, access}`                              |                                                                       |
+| `/training-runs`                    | `GET`             | `per_page`                                                           |                                                                       |
+| `/training-runs/dataset`            | `GET`             | —                                                                    | `{ approved_annotations, min_samples, can_start, has_active_run }`    |
+| `/training-runs/{id}`               | `GET`             | —                                                                    | menyertakan `metrics` mentah (skala 0–100)                            |
+| `/training-runs`                    | `POST`            | `epochs*` (1–20)                                                     | `422` sampel kurang, `503` ML offline, `409` sudah ada run berjalan   |
+| `/logs`                             | `GET`             | `level`, `source`, `search`, `per_page`                              | terbaru dulu                                                          |
+| `/logs/filters`                     | `GET`             | —                                                                    | opsi filter, jangan hard-code di mobile                               |
+| `/settings`                         | `GET`             | —                                                                    | singleton                                                             |
+| `/settings`                         | `PUT`/`PATCH`     | kirim hanya key yang berubah                                         | update parsial; `confidence_threshold` 0.5–1                          |
+| `/returns`                          | `GET`             | `status`, `conveyor`, `per_page`                                     | `status` ∈ `open\|resolved`                                           |
+| `/returns/{id}`                     | `GET`             | —                                                                    | menyertakan `detections[]`                                            |
+| `/returns/{id}/resolve`             | `POST`            | `notes`                                                              | `409` kalau sudah resolved                                            |
+
+`*` = wajib. Upload gambar (`image`/`avatar`) dikirim sebagai `multipart/form-data`, maks 2 MB.
+
+### Hak akses per role (`403`)
+
+Berbeda dari dashboard web — di mana matriks role hanya informatif — **API mobile
+benar-benar menegakkan matriks `RolePermission`**. Endpoint baca butuh akses
+`r`/`w`/`f`, endpoint tulis butuh `w`/`f`. Kalau ditolak, response `403`:
+
+```jsonc
+{ "message": "Anda tidak memiliki akses untuk tindakan ini.", "module": "Product", "required": "write" }
+```
+
+Ringkasan matriks bawaan (`RolePermission::defaults()`):
+
+| Role            | Product | Categories | Users | Returns | Training | Logs | Settings |
+| --------------- | ------- | ---------- | ----- | ------- | -------- | ---- | -------- |
+| `admin`         | full    | full       | full  | full    | full     | full | full     |
+| `supervisor_qc` | write   | write      | read  | full    | write    | read | read     |
+| `operator`      | read    | —          | —     | write   | read     | read | —        |
+| `viewer`        | read    | —          | —     | read    | —        | read | —        |
+
+Akun dengan `is_active = false` mendapat `403` di semua endpoint meski token masih valid.
+
 ## Arm Command (usulan/belum diimplementasikan backend)
 
 > Endpoint ini BELUM ada di `routes/api.php` backend (baru ada GET untuk
