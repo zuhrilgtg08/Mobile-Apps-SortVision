@@ -1,18 +1,23 @@
-import { useAuth } from "@/contexts/AuthContext";
+﻿import { useAuth } from '@/contexts/AuthContext';
 import {
+  ArmBrokerOfflineError,
   ArmCommandUnavailableError,
+  ArmZoneUnmappedError,
   getArmState,
+  getArmZones,
   sendArmCommand,
+  type ArmCommandResponse,
   type ArmResponse,
   type ArmState,
-} from "@/services/armApi";
-import { createMqttClient, type MqttClient } from "@/services/mqttClient";
+  type ArmZone,
+} from '@/services/armApi';
+import { createMqttClient, type MqttClient } from '@/services/mqttClient';
 import {
   getDetections,
   getStatus,
   type DetectionItem,
   type StatusResponse,
-} from "@/services/statusApi";
+} from '@/services/statusApi';
 import {
   createContext,
   useCallback,
@@ -21,15 +26,14 @@ import {
   useRef,
   useState,
   type ReactNode,
-} from "react";
+} from 'react';
 
 const POLL_INTERVAL_MS = 7000;
 const MAX_DETECTIONS = 50;
-/** Selama window ini, hasil MQTT realtime tidak ditimpa polling REST. */
 const MQTT_PRIMACY_MS = 15_000;
 
-const MQTT_WS_URL = process.env.EXPO_PUBLIC_MQTT_WS_URL ?? "";
-const MQTT_BASE_TOPIC = process.env.EXPO_PUBLIC_MQTT_BASE_TOPIC ?? "arm";
+const MQTT_WS_URL = process.env.EXPO_PUBLIC_MQTT_WS_URL ?? '';
+const MQTT_BASE_TOPIC = process.env.EXPO_PUBLIC_MQTT_BASE_TOPIC ?? 'arm';
 const MQTT_USERNAME = process.env.EXPO_PUBLIC_MQTT_USERNAME || undefined;
 const MQTT_PASSWORD = process.env.EXPO_PUBLIC_MQTT_PASSWORD || undefined;
 
@@ -37,35 +41,36 @@ type ArmContextType = {
   status: StatusResponse | null;
   armState: ArmResponse | null;
   detections: DetectionItem[];
-  /** Koneksi MQTT langsung dari mobile (beda arti dari `status.mqtt_connected` backend). */
   isMqttConnected: boolean;
-  /** True kalau `EXPO_PUBLIC_MQTT_WS_URL` diset — kalau tidak, hanya REST polling. */
   isMqttConfigured: boolean;
   lastError: string | null;
   isLoading: boolean;
+  /** Daftar zona selectable dari backend (Fase 3). */
+  zones: ArmZone[];
+  zoneLoading: boolean;
+  zoneError: string | null;
   refresh: () => Promise<void>;
+  refreshZones: () => Promise<void>;
   sendCommand: (
     category: string,
     context?: Record<string, unknown>,
-  ) => Promise<void>;
+  ) => Promise<ArmCommandResponse | null>;
   clearError: () => void;
 };
 
 const ArmContext = createContext<ArmContextType | null>(null);
 
-// --- Normalizers untuk payload MQTT (bentuk JSON tidak dijamin ketat) --------
-
 function asString(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') {
     return String(value);
   }
   return null;
 }
 
 function asNumber(value: unknown): number | null {
-  if (typeof value === "number") return value;
-  if (typeof value === "string" && value.trim() !== "" && !isNaN(Number(value))) {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && value.trim() !== '' && !isNaN(Number(value))) {
     return Number(value);
   }
   return null;
@@ -73,35 +78,28 @@ function asNumber(value: unknown): number | null {
 
 function normalizeArmState(value: unknown): ArmState {
   const s = asString(value)?.toLowerCase();
-  if (s === "running" || s === "error" || s === "idle") return s;
-  return "idle";
+  if (s === 'running' || s === 'error' || s === 'idle') return s;
+  return 'idle';
 }
 
 function armFromMqtt(payload: unknown, prev: ArmResponse | null): ArmResponse {
-  const obj =
-    payload && typeof payload === "object"
-      ? (payload as Record<string, unknown>)
-      : {};
-  const state = "state" in obj ? normalizeArmState(obj.state) : prev?.state ?? "idle";
+  const obj = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  const state = 'state' in obj ? normalizeArmState(obj.state) : prev?.state ?? 'idle';
   return {
     state,
-    state_label:
-      asString(obj.state_label) ?? prev?.state_label ?? state,
+    state_label: asString(obj.state_label) ?? prev?.state_label ?? state,
     detail: asString(obj.detail) ?? prev?.detail ?? null,
-    last_command:
-      "last_command" in obj ? obj.last_command : prev?.last_command ?? null,
+    last_command: 'last_command' in obj ? obj.last_command : prev?.last_command ?? null,
     telemetry:
-      obj.telemetry && typeof obj.telemetry === "object"
+      obj.telemetry && typeof obj.telemetry === 'object'
         ? (obj.telemetry as Record<string, unknown>)
-        : // kalau tidak ada field `telemetry`, anggap seluruh payload adalah telemetry
-          (obj as Record<string, unknown>),
-    reported_at:
-      asString(obj.reported_at) ?? new Date().toISOString(),
+        : (obj as Record<string, unknown>),
+    reported_at: asString(obj.reported_at) ?? new Date().toISOString(),
   };
 }
 
 function detectionFromMqtt(payload: unknown): DetectionItem | null {
-  if (!payload || typeof payload !== "object") return null;
+  if (!payload || typeof payload !== 'object') return null;
   const obj = payload as Record<string, unknown>;
   return {
     code: asString(obj.code),
@@ -123,15 +121,16 @@ export function ArmProvider({ children }: { children: ReactNode }) {
   const [detections, setDetections] = useState<DetectionItem[]>([]);
   const [isMqttConnected, setIsMqttConnected] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [zones, setZones] = useState<ArmZone[]>([]);
+  const [zoneLoading, setZoneLoading] = useState(false);
+  const [zoneError, setZoneError] = useState<string | null>(null);
 
   const isFetchingRef = useRef(false);
   const lastMqttArmAtRef = useRef(0);
   const lastMqttDetectionAtRef = useRef(0);
 
   const isMqttConfigured = MQTT_WS_URL.length > 0;
-  // Derivasi: sedang loading kalau sudah login tapi belum ada data/error pertama.
-  const isLoading =
-    isAuthenticated && status === null && armState === null && lastError === null;
+  const isLoading = isAuthenticated && status === null && armState === null && lastError === null;
 
   const refresh = useCallback(async () => {
     if (isFetchingRef.current) return;
@@ -143,27 +142,17 @@ export function ArmProvider({ children }: { children: ReactNode }) {
         getDetections(),
       ]);
 
-      if (statusRes.status === "fulfilled") {
-        setStatus(statusRes.value);
-      }
-
-      // Jangan timpa data realtime MQTT yang masih baru.
+      if (statusRes.status === 'fulfilled') setStatus(statusRes.value);
       const now = Date.now();
-      if (
-        armRes.status === "fulfilled" &&
-        now - lastMqttArmAtRef.current > MQTT_PRIMACY_MS
-      ) {
+      if (armRes.status === 'fulfilled' && now - lastMqttArmAtRef.current > MQTT_PRIMACY_MS) {
         setArmState(armRes.value);
       }
-      if (
-        detectionsRes.status === "fulfilled" &&
-        now - lastMqttDetectionAtRef.current > MQTT_PRIMACY_MS
-      ) {
+      if (detectionsRes.status === 'fulfilled' && now - lastMqttDetectionAtRef.current > MQTT_PRIMACY_MS) {
         setDetections(detectionsRes.value.slice(0, MAX_DETECTIONS));
       }
 
       const firstFailure = [statusRes, armRes, detectionsRes].find(
-        (r): r is PromiseRejectedResult => r.status === "rejected",
+        (r): r is PromiseRejectedResult => r.status === 'rejected',
       );
       if (firstFailure) {
         const reason = firstFailure.reason;
@@ -176,19 +165,23 @@ export function ArmProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // --- Baseline REST polling (jalan tanpa MQTT sama sekali) ---
+  const refreshZones = useCallback(async () => {
+    setZoneLoading(true);
+    setZoneError(null);
+    try {
+      const fetched = await getArmZones();
+      setZones(fetched);
+    } catch (err) {
+      setZoneError(err instanceof Error ? err.message : 'Gagal memuat zona');
+    } finally {
+      setZoneLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) return;
-
-    // refresh() hanya menyentuh ref secara sinkron; semua setState terjadi setelah
-    // await, jadi tidak memicu setState sinkron di body effect.
     void refresh();
-    const interval = setInterval(() => {
-      void refresh();
-    }, POLL_INTERVAL_MS);
-
-    // Cleanup (dijalankan saat logout / unmount): stop polling & bersihkan data
-    // supaya tidak ada sisa data sesi sebelumnya.
+    const interval = setInterval(() => { void refresh(); }, POLL_INTERVAL_MS);
     return () => {
       clearInterval(interval);
       setStatus(null);
@@ -198,73 +191,65 @@ export function ArmProvider({ children }: { children: ReactNode }) {
     };
   }, [isAuthenticated, refresh]);
 
-  // --- MQTT-over-WebSocket opsional (fallback otomatis ke REST kalau gagal) ---
   useEffect(() => {
-    // Tidak connect kalau belum login atau MQTT tidak dikonfigurasi.
-    // Transisi ke `false` ditangani cleanup effect ini (bukan setState sinkron di body).
-    if (!isAuthenticated || !isMqttConfigured) {
-      return;
-    }
+    if (!isAuthenticated) return;
+    void refreshZones();
+  }, [isAuthenticated, refreshZones]);
 
+  useEffect(() => {
+    if (!isAuthenticated || !isMqttConfigured) return;
     let client: MqttClient | null = null;
     try {
       client = createMqttClient({
         url: MQTT_WS_URL,
-        topics: [`${MQTT_BASE_TOPIC}/status`, `${MQTT_BASE_TOPIC}/detection`],
+        topics: [${MQTT_BASE_TOPIC}/status, ${MQTT_BASE_TOPIC}/detection],
         username: MQTT_USERNAME,
         password: MQTT_PASSWORD,
         onConnectionChange: setIsMqttConnected,
         onMessage: (topic, payloadRaw) => {
           let payload: unknown = payloadRaw;
-          try {
-            payload = JSON.parse(payloadRaw);
-          } catch {
-            // biarkan sebagai string mentah kalau bukan JSON
-          }
-
-          if (topic === `${MQTT_BASE_TOPIC}/status`) {
+          try { payload = JSON.parse(payloadRaw); } catch { /* raw text */ }
+          if (topic === ${MQTT_BASE_TOPIC}/status) {
             lastMqttArmAtRef.current = Date.now();
             setArmState((prev) => armFromMqtt(payload, prev));
-          } else if (topic === `${MQTT_BASE_TOPIC}/detection`) {
+          } else if (topic === ${MQTT_BASE_TOPIC}/detection) {
             const item = detectionFromMqtt(payload);
             if (item) {
               lastMqttDetectionAtRef.current = Date.now();
-              setDetections((prev) =>
-                [item, ...prev].slice(0, MAX_DETECTIONS),
-              );
+              setDetections((prev) => [item, ...prev].slice(0, MAX_DETECTIONS));
             }
           }
         },
       });
       client.connect();
-    } catch {
-      // Kalau setup MQTT gagal, abaikan — REST polling tetap jadi sumber data.
-      // isMqttConnected sudah false (default) sehingga tidak perlu di-set ulang.
-    }
-
-    return () => {
-      client?.disconnect();
-      setIsMqttConnected(false);
-    };
+    } catch { /* REST polling stays as fallback */ }
+    return () => { client?.disconnect(); setIsMqttConnected(false); };
   }, [isAuthenticated, isMqttConfigured]);
 
   const sendCommand = useCallback(
-    async (category: string, context?: Record<string, unknown>) => {
+    async (category: string, context?: Record<string, unknown>): Promise<ArmCommandResponse | null> => {
       try {
-        await sendArmCommand(category, context);
+        const result = await sendArmCommand(category, context);
         setLastError(null);
+        // Optimistic echo: refresh arm state so UI shows latest immediately.
+        void refresh();
+        return result;
       } catch (error) {
         const message =
           error instanceof ArmCommandUnavailableError
             ? error.message
-            : error instanceof Error
+            : error instanceof ArmZoneUnmappedError
               ? error.message
-              : String(error);
+              : error instanceof ArmBrokerOfflineError
+                ? error.message
+                : error instanceof Error
+                  ? error.message
+                  : 'Gagal mengirim command.';
         setLastError(message);
         throw error instanceof Error ? error : new Error(message);
       }
     },
-    [],
+    [sendArmCommand, refresh],
   );
 
   const clearError = useCallback(() => setLastError(null), []);
@@ -279,7 +264,11 @@ export function ArmProvider({ children }: { children: ReactNode }) {
         isMqttConfigured,
         lastError,
         isLoading,
+        zones,
+        zoneLoading,
+        zoneError,
         refresh,
+        refreshZones,
         sendCommand,
         clearError,
       }}
@@ -291,6 +280,6 @@ export function ArmProvider({ children }: { children: ReactNode }) {
 
 export function useArm() {
   const ctx = useContext(ArmContext);
-  if (!ctx) throw new Error("useArm must be used within ArmProvider");
+  if (!ctx) throw new Error('useArm must be used within ArmProvider');
   return ctx;
 }

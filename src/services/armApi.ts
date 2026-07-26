@@ -1,13 +1,7 @@
-import { ApiError, apiRequest } from "@/services/api";
+﻿import { ApiError, apiRequest } from '@/services/api';
 
-/** State arm yang mungkin dilaporkan backend (ArmController / model ArmStatus). */
-export type ArmState = "idle" | "running" | "error";
+export type ArmState = 'idle' | 'running' | 'error';
 
-/**
- * Response dari `GET /arm` (ArmController backend).
- * `telemetry`/`last_command` sengaja longgar (`unknown`) karena bentuknya
- * ditentukan payload MQTT `arm/status` yang ditulis backend, bukan kontrak tetap.
- */
 export type ArmResponse = {
   state: ArmState;
   state_label: string;
@@ -17,50 +11,82 @@ export type ArmResponse = {
   reported_at: string | null;
 };
 
+export type ArmZone = {
+  slug: string;
+  label: string;
+  joint_angles: number[];
+  selectable: boolean;
+};
+
+export type ArmZonesResponse = {
+  zones: ArmZone[];
+};
+
 export type ArmCommandRequest = {
   category: string;
   context?: Record<string, unknown>;
 };
 
 export type ArmCommandResponse = {
-  message?: string;
-  command?: unknown;
+  message: string;
+  command: {
+    category: string;
+    zone: string;
+    joint_angles: number[];
+    issued_at: string;
+  };
 };
 
-/** Error khusus supaya UI bisa membedakan "belum ada endpoint" dari error lain. */
 export class ArmCommandUnavailableError extends Error {
-  constructor(message = "Fitur kirim command belum tersedia di server.") {
+  constructor(message = 'Fitur kirim command belum tersedia di server.') {
     super(message);
-    this.name = "ArmCommandUnavailableError";
+    this.name = 'ArmCommandUnavailableError';
+  }
+}
+
+export class ArmZoneUnmappedError extends Error {
+  constructor(message = 'Kategori ini tidak memiliki zona target yang dikonfigurasi.') {
+    super(message);
+    this.name = 'ArmZoneUnmappedError';
+  }
+}
+
+export class ArmBrokerOfflineError extends Error {
+  constructor(message = 'Broker MQTT sedang offline. Coba lagi nanti.') {
+    super(message);
+    this.name = 'ArmBrokerOfflineError';
   }
 }
 
 export async function getArmState(): Promise<ArmResponse> {
-  return apiRequest<ArmResponse>("/arm");
+  return apiRequest<ArmResponse>('/arm');
 }
 
-/**
- * Mengirim command ke backend (`POST /arm/command`) — endpoint USULAN yang
- * belum diimplementasikan backend saat ini (lihat `API_CONTRACT.md`).
- * Backend tetap satu-satunya publisher `arm/command`; mobile TIDAK publish MQTT.
- *
- * Jika backend membalas 404/501 (belum ada), melempar `ArmCommandUnavailableError`
- * dengan pesan yang bisa ditampilkan langsung ke user — bukan crash.
- */
+export async function getArmZones(): Promise<ArmZone[]> {
+  const response = await apiRequest<ArmZonesResponse>('/arm/zones');
+  return response.zones.filter((z) => z.selectable);
+}
+
 export async function sendArmCommand(
   category: string,
   context?: Record<string, unknown>,
 ): Promise<ArmCommandResponse> {
   try {
-    return await apiRequest<ArmCommandResponse>("/arm/command", {
-      method: "POST",
+    return await apiRequest<ArmCommandResponse>('/arm/command', {
+      method: 'POST',
       body: { category, context } satisfies ArmCommandRequest,
     });
   } catch (error) {
-    // Endpoint belum ada di backend → backend balas 404/501. Terjemahkan jadi
-    // error yang ramah UI, bukan crash.
-    if (error instanceof ApiError && (error.status === 404 || error.status === 501)) {
-      throw new ArmCommandUnavailableError();
+    if (error instanceof ApiError) {
+      if (error.status === 404 || error.status === 501) {
+        throw new ArmCommandUnavailableError();
+      }
+      if (error.status === 422) {
+        throw new ArmZoneUnmappedError();
+      }
+      if (error.status === 503) {
+        throw new ArmBrokerOfflineError();
+      }
     }
     throw error instanceof Error ? error : new Error(String(error));
   }

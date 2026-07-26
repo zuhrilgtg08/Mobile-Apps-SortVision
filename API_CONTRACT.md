@@ -203,20 +203,59 @@ posisi tebakan.
 
 `GET /detections` juga menerima filter `?camera=<nama>`.
 
-## Arm Command (usulan/belum diimplementasikan backend)
+## Arm Command (Sudah ada di backend)
 
-> Endpoint ini BELUM ada di `routes/api.php` backend (baru ada GET untuk
-> `status`/`detections`/`arm`). Didokumentasikan sebagai usulan kontrak supaya mobile
-> siap begitu backend menambahkannya. Sampai ada, mobile menangani `404`/`501`
-> dengan pesan ramah user ("Fitur kirim command belum tersedia di server"), bukan crash.
->
-> Command TIDAK dipublish langsung oleh mobile ke broker MQTT. Backend tetap
-> satu-satunya publisher `arm/command`, karena resolusi `TargetZonePreset`
-> (kategori → `joint_angles`) ada di `ArmMqttService::buildCommandPayload` (Laravel).
+Endpoint `POST /api/arm/command` mengirim perintah ke robotic arm melalui backend Laravel.
+Backend adalah satu-satunya publisher `arm/command` — mobile **TIDAK** publish MQTT langsung.
+Backend me-resolve kategori ke `TargetZonePreset` (joint angles) dan mengembalikan echo command yang dipublish.
 
-| Endpoint       | Method | Request body                                                       | Success response                                | Error codes                                                              |
-| -------------- | ------ | ----------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------ |
-| `/arm/command` | `POST` | `{ "category": string, "context"?: { [key: string]: unknown } }` | `{ "message"?: string, "command"?: unknown }`   | `401 Unauthorized`, `404 Not Found` / `501 Not Implemented` (belum ada), `422 Validation Error` |
+Mobile membedakan tiga jenis error:
+- **404/501** → `ArmCommandUnavailableError`: endpoint belum aktif
+- **422** → `ArmZoneUnmappedError`: kategori tidak punya `TargetZonePreset` (konfigurasi)
+- **503** → `ArmBrokerOfflineError`: broker MQTT backend tidak terjangkau (transient, bisa retry)
+
+### `GET /api/arm/zones` (baru)
+
+Daftar zona target yang tersedia. Hanya zona dengan `selectable: true` yang boleh dikirim command oleh operator. Zona internal (`default`, `return`) disembunyikan.
+
+**200**
+```jsonc
+{
+  "zones": [
+    { "slug": "yogurt", "label": "Yogurt", "joint_angles": [10, 15, 20, 25, 30, 35], "selectable": true },
+    { "slug": "default", "label": "Default", "joint_angles": [0, 0, 0, 0, 0, 0], "selectable": false }
+  ]
+}
+```
+
+### Response `POST /api/arm/command`
+
+Berisi echo command yang dipublish — bukan state arm baru (ESP32 yang tahu ia bergerak).
+
+**200**
+```jsonc
+{
+  "message": "Command diterbitkan ke arm/command",
+  "command": {
+    "category": "Yogurt",
+    "zone": "yogurt",
+    "joint_angles": [10, 15, 20, 25, 30, 35],
+    "issued_at": "2026-07-26T19:00:00+00:00"
+  }
+}
+```
+
+| Endpoint            | Method | Request body                                                       | Success response                                                      | Error codes                                                                  |
+| ------------------- | ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `/arm/command`    | `POST` | `{ "category": string, "context"?: object }` | `{ "message": string, "command": { category, zone, joint_angles, issued_at } }` | `401`, `404`/`501`, `422`, `503` |
+| `/arm/zones`      | `GET`  | none                                                               | `{ "zones": [{ slug, label, joint_angles, selectable }] }`           | `401`                                                                        |
+
+### Catatan tambahan
+
+- `joint_angles` sudah di-resolve oleh backend (bukan dikirim mentah oleh mobile).
+- `context` opsional untuk metadata tambahan (mis. `detection_id`, `source`).
+- Mobile menampilkan echo command di UI tanpa mengarang `state` arm — status arm
+  diperbarui via polling REST atau MQTT telemetry.
 
 ## MQTT (telemetry realtime, opsional)
 
