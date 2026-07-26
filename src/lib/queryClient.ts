@@ -89,4 +89,11 @@ export const queryKeys = {
     list: (filters: unknown) => ["returns", "list", filters] as const,
     detail: (id: number) => ["returns", "detail", id] as const,
   },
+  stats: {
+    all: ["stats"] as const,
+    dashboard: (range: string) => ["stats", "dashboard", range] as const,
+  },
+  profile: {
+    all: ["profile"] as const,
+  },
 } as const;
