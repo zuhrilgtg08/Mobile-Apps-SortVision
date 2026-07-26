@@ -96,4 +96,9 @@ export const queryKeys = {
   profile: {
     all: ["profile"] as const,
   },
+  annotations: {
+    all: ["annotations"] as const,
+    queue: (params: unknown) => ["annotations", "queue", params] as const,
+    stats: ["annotations", "stats"] as const,
+  },
 } as const;
