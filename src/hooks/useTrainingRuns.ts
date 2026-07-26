@@ -1,5 +1,6 @@
 import { queryKeys } from "@/lib/queryClient";
 import {
+  activateTrainingModel,
   getTrainingDataset,
   getTrainingRuns,
   startTrainingRun,
@@ -41,6 +42,22 @@ export function useStartTrainingRun() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.trainingRuns.all });
       // Run baru mencatat entri di system log.
+      void client.invalidateQueries({ queryKey: queryKeys.logs.all });
+    },
+  });
+}
+
+export function useActivateTrainingModel() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, force }: { id: number; force?: boolean }) =>
+      activateTrainingModel(id, force ?? false),
+    onSuccess: () => {
+      // `is_active_model` berpindah ke run lain, dan settings menyimpan
+      // active_training_run_id — keduanya jadi basi setelah aktivasi.
+      void client.invalidateQueries({ queryKey: queryKeys.trainingRuns.all });
+      void client.invalidateQueries({ queryKey: queryKeys.settings.all });
       void client.invalidateQueries({ queryKey: queryKeys.logs.all });
     },
   });

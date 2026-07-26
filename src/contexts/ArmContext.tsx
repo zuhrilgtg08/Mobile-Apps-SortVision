@@ -1,4 +1,4 @@
-﻿import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   ArmBrokerOfflineError,
   ArmCommandUnavailableError,
@@ -122,10 +122,14 @@ export function ArmProvider({ children }: { children: ReactNode }) {
   const [isMqttConnected, setIsMqttConnected] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [zones, setZones] = useState<ArmZone[]>([]);
-  const [zoneLoading, setZoneLoading] = useState(false);
+  // Mulai `true`: zona selalu diambil sekali begitu user login, jadi state awal
+  // yang jujur adalah "sedang memuat" — sekaligus menghindari setState sinkron
+  // di dalam effect (yang memicu cascading render).
+  const [zoneLoading, setZoneLoading] = useState(true);
   const [zoneError, setZoneError] = useState<string | null>(null);
 
   const isFetchingRef = useRef(false);
+  const isFetchingZonesRef = useRef(false);
   const lastMqttArmAtRef = useRef(0);
   const lastMqttDetectionAtRef = useRef(0);
 
@@ -166,15 +170,21 @@ export function ArmProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshZones = useCallback(async () => {
-    setZoneLoading(true);
-    setZoneError(null);
+    if (isFetchingZonesRef.current) return;
+    isFetchingZonesRef.current = true;
     try {
-      const fetched = await getArmZones();
-      setZones(fetched);
-    } catch (err) {
-      setZoneError(err instanceof Error ? err.message : 'Gagal memuat zona');
-    } finally {
+      const [zonesRes] = await Promise.allSettled([getArmZones()]);
+
+      if (zonesRes.status === 'fulfilled') {
+        setZones(zonesRes.value);
+        setZoneError(null);
+      } else {
+        const reason = zonesRes.reason;
+        setZoneError(reason instanceof Error ? reason.message : 'Gagal memuat zona');
+      }
       setZoneLoading(false);
+    } finally {
+      isFetchingZonesRef.current = false;
     }
   }, []);
 
@@ -249,7 +259,7 @@ export function ArmProvider({ children }: { children: ReactNode }) {
         throw error instanceof Error ? error : new Error(message);
       }
     },
-    [sendArmCommand, refresh],
+    [refresh],
   );
 
   const clearError = useCallback(() => setLastError(null), []);

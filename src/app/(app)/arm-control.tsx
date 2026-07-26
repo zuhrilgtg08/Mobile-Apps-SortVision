@@ -1,15 +1,14 @@
-﻿import StatusBadge from '@/components/StatusBadge';
+import StatusBadge from '@/components/StatusBadge';
 import { useArm } from '@/contexts/ArmContext';
 import {
   ArmBrokerOfflineError,
   ArmCommandUnavailableError,
   ArmZoneUnmappedError,
   type ArmCommandResponse,
-  type ArmZone,
 } from '@/services/armApi';
 import { type DetectionItem } from '@/services/statusApi';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -35,9 +34,9 @@ function formatRelative(iso: string | null): string {
   if (diff < 0) return new Date(iso).toLocaleTimeString();
   const s = Math.floor(diff / 1000);
   if (s < 60) return `${s} detik lalu`;
-const m = Math.floor(s / 60);
+  const m = Math.floor(s / 60);
   if (m < 60) return `${m} menit lalu`;
-const h = Math.floor(m / 60);
+  const h = Math.floor(m / 60);
   if (h < 24) return `${h} jam lalu`;
   return new Date(iso).toLocaleString();
 }
@@ -85,13 +84,21 @@ function DetectionRow({ item, last }: { item: DetectionItem; last: boolean }) {
   );
 }
 
+/**
+ * Kegagalan kirim command, sudah diklasifikasi saat ditangkap. Menyimpan
+ * `retryable` di sini (bukan menebak dari teks pesan) supaya tombol "Coba lagi"
+ * hanya muncul untuk gangguan sesaat — broker mati — bukan untuk kategori yang
+ * memang belum dipetakan ke zona, yang diulang berapa kali pun tetap gagal.
+ */
+type CommandFailure = { message: string; retryable: boolean };
+
 function CommandFeedback({
   result,
   error,
   onRetry,
 }: {
   result: ArmCommandResponse | null;
-  error: string | null;
+  error: CommandFailure | null;
   onRetry: () => void;
 }) {
   if (!result && !error) return null;
@@ -115,17 +122,15 @@ function CommandFeedback({
     );
   }
 
-const isRetryable =
-    error?.includes('offline') ||
-    error?.includes('timeout');
-
   return (
     <View style={[styles.feedbackBox, styles.feedbackBoxError]}>
       <View style={styles.feedbackRow}>
         <Ionicons name='alert-circle' size={20} color='#dc2626' />
-        <Text style={[styles.feedbackText, styles.feedbackTextError]}>{error}</Text>
+        <Text style={[styles.feedbackText, styles.feedbackTextError]}>
+          {error?.message}
+        </Text>
       </View>
-      {isRetryable ? (
+      {error?.retryable ? (
         <Pressable style={styles.retryBtn} onPress={onRetry}>
           <Ionicons name='refresh-outline' size={16} color='#fff' />
           <Text style={styles.retryBtnText}>Coba lagi</Text>
@@ -150,16 +155,22 @@ export default function ArmControlScreen() {
     sendCommand,
   } = useArm();
 
-  const selectedCategory = zones.length > 0 ? zones[0].slug : PRODUCT_CATEGORIES[0];
-  const [localCategory, setLocalCategory] = useState(selectedCategory);
+  const [pickedCategory, setPickedCategory] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [commandResult, setCommandResult] = useState<ArmCommandResponse | null>(null);
-  const [commandError, setCommandError] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState<CommandFailure | null>(null);
 
-  useEffect(() => {
-    setLocalCategory(zones.length > 0 ? zones[0].slug : PRODUCT_CATEGORIES[0]);
-  }, [zones]);
+  // Pilihan efektif diturunkan, bukan disinkronkan lewat effect: zona pertama
+  // jadi default saat daftar dari backend tiba, dan pilihan yang hilang setelah
+  // preset backend berubah otomatis jatuh kembali ke zona pertama.
+  const localCategory = useMemo(() => {
+    if (pickedCategory && zones.some((z) => z.slug === pickedCategory)) {
+      return pickedCategory;
+    }
+    return zones.length > 0 ? zones[0].slug : PRODUCT_CATEGORIES[0];
+  }, [pickedCategory, zones]);
+  const setLocalCategory = setPickedCategory;
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -178,9 +189,18 @@ export default function ArmControlScreen() {
       const result = await sendCommand(localCategory);
       setCommandResult(result);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Gagal mengirim command.';
-      setCommandError(message);
+      // Endpoint belum ada di server dan kategori tanpa preset zona sama-sama
+      // permanen sampai ada yang diperbaiki di sisi backend; hanya broker mati
+      // yang layak dicoba ulang dari sini.
+      const permanent =
+        error instanceof ArmCommandUnavailableError ||
+        error instanceof ArmZoneUnmappedError;
+
+      setCommandError({
+        message:
+          error instanceof Error ? error.message : 'Gagal mengirim command.',
+        retryable: !permanent || error instanceof ArmBrokerOfflineError,
+      });
     } finally {
       setIsSending(false);
     }

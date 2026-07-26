@@ -1,4 +1,4 @@
-﻿import { ApiError, apiRequest } from '@/services/api';
+import { ApiError, apiRequest } from '@/services/api';
 
 export type ArmState = 'idle' | 'running' | 'error';
 
