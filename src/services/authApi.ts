@@ -1,4 +1,4 @@
-import { apiRequest, AUTH_TOKEN_KEY } from "@/services/api";
+import { ApiError, apiRequest, AUTH_TOKEN_KEY } from "@/services/api";
 import * as storage from "@/services/storage";
 
 type User = {
@@ -61,24 +61,53 @@ export async function clearStoredAuthSession() {
   await storage.deleteItemAsync(AUTH_ROLE_KEY);
 }
 
-export async function loginWithEmail(email: string, password: string) {
-  const response = await apiRequest<{
-    token?: string;
-    access_token?: string;
-    accessToken?: string;
-    user?: Partial<User>;
-    role?: string;
-    data?: { user?: Partial<User>; role?: string };
-  }>("/auth/login", {
-    method: "POST",
-    body: { email, password },
-    // 401 di sini = kredensial salah, bukan sesi kadaluarsa: jangan redirect global.
-    suppressUnauthorized: true,
-  });
+/**
+ * Bentuk response auth yang ditoleransi mobile. Nama field token & posisi user
+ * sengaja dibuat longgar karena backend bisa membungkusnya di `data`.
+ */
+type AuthResponsePayload = {
+  token?: string;
+  access_token?: string;
+  accessToken?: string;
+  message?: string;
+  user?: Partial<User>;
+  role?: string;
+  data?: { user?: Partial<User>; role?: string };
+};
 
+/**
+ * Error khusus untuk endpoint auth yang BELUM diimplementasikan backend
+ * (`/auth/register`, `/auth/forgot-password`, `/auth/reset-password` — lihat
+ * `API_CONTRACT.md`). Dipisahkan supaya UI bisa menampilkan pesan "belum
+ * tersedia di server" alih-alih pesan error mentah atau, lebih buruk lagi,
+ * pura-pura berhasil.
+ */
+export class AuthEndpointUnavailableError extends Error {
+  constructor(message = "Fitur ini belum tersedia di server.") {
+    super(message);
+    this.name = "AuthEndpointUnavailableError";
+  }
+}
+
+/** Terjemahkan 404/501 (endpoint belum ada) jadi error yang ramah UI. */
+function translateMissingEndpoint(error: unknown, message: string): never {
+  if (
+    error instanceof ApiError &&
+    (error.status === 404 || error.status === 501)
+  ) {
+    throw new AuthEndpointUnavailableError(message);
+  }
+
+  throw error instanceof Error ? error : new Error(String(error));
+}
+
+/** Ambil token + user dari response auth, lalu simpan sebagai sesi aktif. */
+async function sessionFromResponse(
+  response: AuthResponsePayload,
+): Promise<AuthSession | null> {
   const token = response.token ?? response.access_token ?? response.accessToken;
   if (!token) {
-    throw new Error("No token received from authentication service.");
+    return null;
   }
 
   const userPayload = response.user ?? response.data?.user ?? null;
@@ -87,11 +116,115 @@ export async function loginWithEmail(email: string, password: string) {
   const user = normalizeUser(userPayload);
   await persistAuthSession(token, user, role);
 
-  return {
-    token,
-    user,
-    role,
-  } satisfies AuthSession;
+  return { token, user, role };
+}
+
+export async function loginWithEmail(email: string, password: string) {
+  const response = await apiRequest<AuthResponsePayload>("/auth/login", {
+    method: "POST",
+    body: { email, password },
+    // 401 di sini = kredensial salah, bukan sesi kadaluarsa: jangan redirect global.
+    suppressUnauthorized: true,
+  });
+
+  const session = await sessionFromResponse(response);
+  if (!session) {
+    throw new Error("No token received from authentication service.");
+  }
+
+  return session;
+}
+
+/**
+ * Mendaftarkan akun baru lewat `POST /auth/register`.
+ *
+ * Mengembalikan `AuthSession` kalau backend langsung membalas token (user
+ * otomatis masuk), atau `null` kalau akun dibuat tanpa token — pemanggil harus
+ * mengarahkan user ke layar login. Jangan pernah memanggil `/auth/login` di
+ * sini: itu bug lama yang membuat pendaftaran seolah berhasil padahal tidak
+ * ada akun yang dibuat.
+ */
+export async function registerWithEmail(
+  name: string,
+  email: string,
+  password: string,
+  passwordConfirmation: string,
+): Promise<AuthSession | null> {
+  try {
+    const response = await apiRequest<AuthResponsePayload>("/auth/register", {
+      method: "POST",
+      body: {
+        name,
+        email,
+        password,
+        password_confirmation: passwordConfirmation,
+      },
+      // Belum ada sesi yang bisa kadaluarsa — jangan picu redirect global.
+      suppressUnauthorized: true,
+    });
+
+    return await sessionFromResponse(response);
+  } catch (error) {
+    translateMissingEndpoint(
+      error,
+      "Pendaftaran akun belum tersedia di server. Hubungi administrator.",
+    );
+  }
+}
+
+/** Meminta email berisi link reset password (`POST /auth/forgot-password`). */
+export async function requestPasswordReset(email: string): Promise<string> {
+  try {
+    const response = await apiRequest<{ message?: string }>(
+      "/auth/forgot-password",
+      {
+        method: "POST",
+        body: { email },
+        suppressUnauthorized: true,
+      },
+    );
+
+    return response?.message ?? "Link reset password telah dikirim.";
+  } catch (error) {
+    translateMissingEndpoint(
+      error,
+      "Reset password belum tersedia di server. Hubungi administrator.",
+    );
+  }
+}
+
+/**
+ * Menyetel password baru memakai token dari email reset
+ * (`POST /auth/reset-password`).
+ */
+export async function resetPassword(params: {
+  token: string;
+  email: string;
+  password: string;
+  passwordConfirmation: string;
+}): Promise<string> {
+  try {
+    const response = await apiRequest<{ message?: string }>(
+      "/auth/reset-password",
+      {
+        method: "POST",
+        body: {
+          token: params.token,
+          email: params.email,
+          password: params.password,
+          password_confirmation: params.passwordConfirmation,
+        },
+        suppressUnauthorized: true,
+      },
+    );
+
+    return response?.message ?? "Password berhasil diperbarui.";
+  } catch (error) {
+    translateMissingEndpoint(
+      error,
+      "Reset password belum tersedia di server. Hubungi administrator.",
+    );
+  }
 }
 
 export async function logoutFromServer() {
