@@ -113,6 +113,21 @@ function extractErrorMessage(payload: unknown) {
 }
 
 /**
+ * `403` dari API artinya role pemakai tidak punya hak atas modul ini (middleware
+ * `EnsureModuleAccess` di backend), atau akunnya dinonaktifkan — bukan sesi
+ * kadaluarsa. Layar harus menampilkan "tidak punya akses", bukan melempar user
+ * ke halaman login seperti pada `401`.
+ */
+export function isForbiddenError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 403;
+}
+
+/** `404` — resource sudah dihapus orang lain, atau id-nya salah. */
+export function isNotFoundError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 404;
+}
+
+/**
  * Ambil error per-field dari response validasi Laravel (`422`) supaya form bisa
  * menandai input yang bermasalah, bukan cuma menampilkan satu pesan global.
  * Mengembalikan objek kosong kalau error-nya bukan error validasi.
@@ -156,14 +171,25 @@ export async function apiRequest<T = unknown>(
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  if (options.body !== undefined && !headers.has("Content-Type")) {
+  // FormData (upload gambar/avatar) harus dikirim apa adanya: fetch yang
+  // menyusun sendiri header multipart beserta boundary-nya. Menyetel
+  // Content-Type manual justru merusak boundary tersebut.
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
+
+  if (options.body !== undefined && !isFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
   const response = await fetch(buildUrl(path), {
     method: options.method ?? "GET",
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body:
+      options.body === undefined
+        ? undefined
+        : isFormData
+          ? (options.body as FormData)
+          : JSON.stringify(options.body),
   });
 
   const payload = await parseResponseBody(response);
