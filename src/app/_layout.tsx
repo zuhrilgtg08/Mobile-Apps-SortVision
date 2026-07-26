@@ -1,5 +1,6 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import AppErrorBoundary from "@/components/AppErrorBoundary";
 import { AuthProvider } from "@/contexts/AuthContext";
 import {
   useFonts,
@@ -10,6 +11,13 @@ import {
   Poppins_800ExtraBold,
 } from "@expo-google-fonts/poppins";
 import { ActivityIndicator, View } from "react-native";
+
+/**
+ * Expo Router memakai export bernama `ErrorBoundary` untuk membungkus segmen
+ * route ini. Karena ada di root layout, seluruh aplikasi (termasuk
+ * `AuthProvider` dan semua layar di bawahnya) ikut terlindungi.
+ */
+export { AppErrorBoundary as ErrorBoundary };
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({

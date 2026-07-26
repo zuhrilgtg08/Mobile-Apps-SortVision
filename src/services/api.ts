@@ -96,9 +96,52 @@ function extractErrorMessage(payload: unknown) {
     if (Array.isArray(errors) && errors.length > 0) {
       return String(errors[0]);
     }
+
+    // Laravel 422: `errors` berbentuk objek `{ field: [pesan, ...] }`.
+    if (errors && typeof errors === "object") {
+      const first = Object.values(errors as Record<string, unknown>)[0];
+      if (Array.isArray(first) && first.length > 0) {
+        return String(first[0]);
+      }
+      if (typeof first === "string") {
+        return first;
+      }
+    }
   }
 
   return "Request failed";
+}
+
+/**
+ * Ambil error per-field dari response validasi Laravel (`422`) supaya form bisa
+ * menandai input yang bermasalah, bukan cuma menampilkan satu pesan global.
+ * Mengembalikan objek kosong kalau error-nya bukan error validasi.
+ */
+export function extractFieldErrors(
+  error: unknown,
+): Record<string, string> {
+  if (!(error instanceof ApiError) || !error.payload) {
+    return {};
+  }
+
+  const payload = error.payload as Record<string, unknown>;
+  const errors = payload.errors;
+  if (!errors || typeof errors !== "object" || Array.isArray(errors)) {
+    return {};
+  }
+
+  const result: Record<string, string> = {};
+  for (const [field, messages] of Object.entries(
+    errors as Record<string, unknown>,
+  )) {
+    if (Array.isArray(messages) && messages.length > 0) {
+      result[field] = String(messages[0]);
+    } else if (typeof messages === "string") {
+      result[field] = messages;
+    }
+  }
+
+  return result;
 }
 
 export async function apiRequest<T = unknown>(

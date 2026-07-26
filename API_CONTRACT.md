@@ -10,6 +10,46 @@
 | `/auth/logout` | `POST` | `Authorization: Bearer <token>`           | `{ "message": "Logged out" }`                                                                    | `401 Unauthorized`                         |
 | `/auth/me`     | `GET`  | `Authorization: Bearer <token>`           | `{ "user": { "id": number, "name": string, "email": string, "role": string } }`                  | `401 Unauthorized`                         |
 
+### Register & reset password (usulan/belum diimplementasikan backend)
+
+> Ketiga endpoint di bawah BELUM ada di `routes/api.php` backend (yang tersedia baru
+> `login`/`logout`/`me`). Registrasi & reset password saat ini hanya ada di web
+> dashboard lewat Livewire/Breeze, bukan REST.
+>
+> Sampai backend menambahkannya, mobile menangani `404`/`501` dengan melempar
+> `AuthEndpointUnavailableError` dan menampilkan pesan "belum tersedia di server".
+> Yang penting: layar TIDAK BOLEH menampilkan sukses palsu — bug lama membuat
+> layar daftar memanggil `/auth/login` dan layar reset hanya mengubah state lokal,
+> sehingga user mengira akun/password sudah dibuat padahal tidak ada apa pun yang
+> berubah di server.
+
+| Endpoint                 | Method | Request body                                                                                          | Success response                                              | Error codes                                                                  |
+| ------------------------ | ------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `/auth/register`         | `POST` | `{ "name": string, "email": string, "password": string, "password_confirmation": string }`            | `{ "token"?: string, "user": { ... } }`                       | `404`/`501` (belum ada), `422 Validation Error`                              |
+| `/auth/forgot-password`  | `POST` | `{ "email": string }`                                                                                 | `{ "message": string }`                                       | `404`/`501` (belum ada), `422 Validation Error`                              |
+| `/auth/reset-password`   | `POST` | `{ "token": string, "email": string, "password": string, "password_confirmation": string }`           | `{ "message": string }`                                       | `404`/`501` (belum ada), `422 Validation Error`                              |
+
+- `/auth/register` — kalau backend mengembalikan `token`, mobile langsung menyimpan sesi
+  dan masuk ke dashboard. Kalau hanya membuat akun tanpa token, mobile mengarahkan
+  user ke layar login. Kedua perilaku sudah didukung.
+- `/auth/reset-password` — `token` diambil dari deep link email reset
+  (`sortvision://reset-password?token=...&email=...`). Tanpa token, layar reset
+  menolak submit dan meminta user membuka link dari email.
+
+### Error validasi (`422`)
+
+Mobile membaca format bawaan Laravel dan memetakannya ke error per-field di form:
+
+```jsonc
+{
+  "message": "The given data was invalid.",
+  "errors": {
+    "email": ["The email has already been taken."],
+    "password": ["The password must be at least 8 characters."]
+  }
+}
+```
+
 ## Status & Monitoring
 
 | Endpoint      | Method | Request body | Success response                                                                                                          | Error codes                                     |
