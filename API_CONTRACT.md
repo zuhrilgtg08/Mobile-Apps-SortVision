@@ -66,12 +66,18 @@ Mobile membaca format bawaan Laravel dan memetakannya ke error per-field di form
   "product_id": number | null,
   "camera": string | null,
   "conveyor": string | null,
-  "status": string | null,     // mis. "pass" | "fail" | "reject"
+  "status": string | null,     // mis. "passed" | "damaged" | "scratched"
   "qr_value": string | null,
-  "confidence": number | null, // 0..1
+  "confidence": number | null,
+  "bbox": [x1, y1, x2, y2] | null, // koordinat piksel frame ASLI (lihat Live Camera)
+  "label": string | null,
+  "frame_width": number | null,
+  "frame_height": number | null,
   "detected_at": string | null // ISO 8601
 }
 ```
+
+`GET /detections` menerima query `camera`, `status`, dan `per_page`.
 
 ### `ArmResponse` (`GET /arm`, ArmController backend)
 
@@ -203,20 +209,34 @@ posisi tebakan.
 
 `GET /detections` juga menerima filter `?camera=<nama>`.
 
-## Arm Command (usulan/belum diimplementasikan backend)
+## Arm Command (Fase 3 — SUDAH ada di backend)
 
-> Endpoint ini BELUM ada di `routes/api.php` backend (baru ada GET untuk
-> `status`/`detections`/`arm`). Didokumentasikan sebagai usulan kontrak supaya mobile
-> siap begitu backend menambahkannya. Sampai ada, mobile menangani `404`/`501`
-> dengan pesan ramah user ("Fitur kirim command belum tersedia di server"), bukan crash.
->
 > Command TIDAK dipublish langsung oleh mobile ke broker MQTT. Backend tetap
 > satu-satunya publisher `arm/command`, karena resolusi `TargetZonePreset`
 > (kategori → `joint_angles`) ada di `ArmMqttService::buildCommandPayload` (Laravel).
 
-| Endpoint       | Method | Request body                                                       | Success response                                | Error codes                                                              |
-| -------------- | ------ | ----------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------ |
-| `/arm/command` | `POST` | `{ "category": string, "context"?: { [key: string]: unknown } }` | `{ "message"?: string, "command"?: unknown }`   | `401 Unauthorized`, `404 Not Found` / `501 Not Implemented` (belum ada), `422 Validation Error` |
+| Endpoint       | Method | Request body                                                    | Success response                          |
+| -------------- | ------ | --------------------------------------------------------------- | ----------------------------------------- |
+| `/arm/command` | `POST` | `{ "category": string, "context"?: { [key: string]: unknown } }` | `{ "message": string, "category": string }` |
+
+**Kode error — masing-masing berarti hal berbeda:**
+
+| Status | Arti                                                                 | Tindakan klien                              |
+| ------ | -------------------------------------------------------------------- | ------------------------------------------- |
+| `401`  | Token kadaluarsa                                                      | Kembali ke login                            |
+| `403`  | Role tidak punya akses **write** pada modul "Live Camera", atau akun nonaktif | Tampilkan "tidak punya akses", jangan retry |
+| `422`  | `category` kosong, atau `context` bukan objek                         | Perbaiki input                              |
+| `429`  | Melebihi batas 30 command per menit                                   | Tunggu, lalu coba lagi                      |
+| `503`  | Broker MQTT tidak terjangkau, **atau** preset zona belum di-seed      | Boleh dicoba lagi; pesannya membedakan keduanya |
+
+Catatan penting soal `category`: `TargetZonePreset::forCategory()` jatuh ke
+preset `default` bila kategori tidak dikenal, jadi kategori asing **tetap
+diterima** dan diarahkan ke zona default — bukan ditolak `422`. Jangan asumsikan
+`200` berarti kategorinya punya preset khusus.
+
+Backend menambahkan `source: "mobile"` dan `issued_by: <user id>` ke `context`
+sebelum publish, dan mencatat setiap command yang diterima ke system log
+(`source: "arm"`) supaya gerakan fisik bisa dilacak ke akun pemesannya.
 
 ## MQTT (telemetry realtime, opsional)
 
