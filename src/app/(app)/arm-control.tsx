@@ -9,7 +9,7 @@ import {
 } from '@/services/armApi';
 import { type DetectionItem } from '@/services/statusApi';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -34,11 +34,11 @@ function formatRelative(iso: string | null): string {
   const diff = Date.now() - t;
   if (diff < 0) return new Date(iso).toLocaleTimeString();
   const s = Math.floor(diff / 1000);
-  if (s < 60) return \\ detik lalu\;
-  const m = Math.floor(s / 60);
-  if (m < 60) return \\ menit lalu\;
-  const h = Math.floor(m / 60);
-  if (h < 24) return \\ jam lalu\;
+  if (s < 60) return `${s} detik lalu`;
+const m = Math.floor(s / 60);
+  if (m < 60) return `${m} menit lalu`;
+const h = Math.floor(m / 60);
+  if (h < 24) return `${h} jam lalu`;
   return new Date(iso).toLocaleString();
 }
 
@@ -69,7 +69,7 @@ function ConnRow({
 }
 
 function DetectionRow({ item, last }: { item: DetectionItem; last: boolean }) {
-  const title = item.code ?? item.qr_value ?? \Product #\\;
+  const title = item.code ?? item.qr_value ?? `Product #${item.product_id ?? '?'}`;
   const meta = [item.camera, item.conveyor].filter(Boolean).join(' • ');
   return (
     <View style={[styles.tableRow, !last && styles.tableRowBorder]}>
@@ -115,8 +115,7 @@ function CommandFeedback({
     );
   }
 
-  const isRetryable =
-    error === ArmBrokerOfflineError.name ||
+const isRetryable =
     error?.includes('offline') ||
     error?.includes('timeout');
 
@@ -398,7 +397,7 @@ export default function ArmControlScreen() {
             .slice(0, 15)
             .map((det, idx, arr) => (
               <DetectionRow
-                key={\\-\\}
+                key={`${det.code ?? det.detected_at ?? idx}-${idx}`}
                 item={det}
                 last={idx === arr.length - 1}
               />

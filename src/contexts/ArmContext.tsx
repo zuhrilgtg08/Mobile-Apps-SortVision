@@ -202,17 +202,17 @@ export function ArmProvider({ children }: { children: ReactNode }) {
     try {
       client = createMqttClient({
         url: MQTT_WS_URL,
-        topics: [${MQTT_BASE_TOPIC}/status, ${MQTT_BASE_TOPIC}/detection],
+        topics: [`${MQTT_BASE_TOPIC}/status`, `${MQTT_BASE_TOPIC}/detection`],
         username: MQTT_USERNAME,
         password: MQTT_PASSWORD,
         onConnectionChange: setIsMqttConnected,
         onMessage: (topic, payloadRaw) => {
           let payload: unknown = payloadRaw;
           try { payload = JSON.parse(payloadRaw); } catch { /* raw text */ }
-          if (topic === ${MQTT_BASE_TOPIC}/status) {
+          if (topic === `${MQTT_BASE_TOPIC}/status`) {
             lastMqttArmAtRef.current = Date.now();
             setArmState((prev) => armFromMqtt(payload, prev));
-          } else if (topic === ${MQTT_BASE_TOPIC}/detection) {
+          } else if (topic === `${MQTT_BASE_TOPIC}/detection`) {
             const item = detectionFromMqtt(payload);
             if (item) {
               lastMqttDetectionAtRef.current = Date.now();
