@@ -75,6 +75,15 @@ export const queryKeys = {
   settings: {
     all: ["settings"] as const,
   },
+  cameras: {
+    all: ["cameras"] as const,
+    list: ["cameras", "list"] as const,
+    status: ["cameras", "status"] as const,
+  },
+  detections: {
+    all: ["detections"] as const,
+    list: (filters: unknown) => ["detections", "list", filters] as const,
+  },
   returns: {
     all: ["returns"] as const,
     list: (filters: unknown) => ["returns", "list", filters] as const,

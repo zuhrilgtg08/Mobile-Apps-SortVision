@@ -154,6 +154,55 @@ Ringkasan matriks bawaan (`RolePermission::defaults()`):
 
 Akun dengan `is_active = false` mendapat `403` di semua endpoint meski token masih valid.
 
+## Live Camera (Fase 2 — SUDAH ada di backend)
+
+| Endpoint           | Method | Query        | Success response                                                       |
+| ------------------ | ------ | ------------ | ---------------------------------------------------------------------- |
+| `/cameras`         | `GET`  | `is_active`, `per_page` | `{data: [Camera], meta}`                                    |
+| `/cameras/status`  | `GET`  | —            | `{data: {connected, mode, fps, service_reachable}}`                     |
+| `/cameras/frame`   | `GET`  | —            | **`image/jpeg`** (bukan JSON), atau `503` bila belum ada frame          |
+
+`Camera`: `{id, name, conveyor, is_active, position, is_live, source_kind}`.
+`source_kind` ∈ `rtsp \| simulator`.
+
+> **`rtsp_url` sengaja TIDAK dikirim.** URL RTSP sering memuat kredensial
+> (`rtsp://user:pass@host`) dan klien tidak pernah membutuhkannya — frame datang
+> lewat proxy `/cameras/frame`.
+
+### Kenapa polling frame, bukan MJPEG
+
+ml-service punya `/camera/stream` berformat `multipart/x-mixed-replace`, dan
+dashboard web memakainya langsung di `<img>`. **Itu tidak bisa dipakai di
+mobile**: image loader native iOS/Android tidak merender MJPEG — hasilnya layar
+kosong, bukan error. Selain itu ml-service tidak punya autentikasi sendiri dan
+biasanya hanya mendengarkan di localhost, sehingga ponsel tidak bisa
+menjangkaunya.
+
+Karena itu backend menambahkan `GET /camera/frame` di ml-service (satu JPEG) dan
+mem-proxy-nya lewat `/cameras/frame` yang dijaga token Sanctum. Mobile memanggil
+endpoint itu berulang (1/2/5/10 fps, bisa dipilih user) untuk membentuk feed.
+Query `?t=<timestamp>` wajib ada — tanpa cache-busting gambar akan membeku.
+
+### Bounding box pada `/detections`
+
+`DetectionItem` kini juga membawa:
+
+```jsonc
+{
+  "bbox": [x1, y1, x2, y2] | null,  // koordinat piksel frame ASLI
+  "label": string | null,
+  "frame_width": number | null,
+  "frame_height": number | null
+}
+```
+
+`bbox` memakai koordinat frame asli, jadi klien **wajib** menskalakannya dengan
+`frame_width`/`frame_height` terhadap ukuran render di layar. Deteksi dari jalur
+manual (webcam) tidak punya kotak dan `bbox`-nya `null` — jangan digambar di
+posisi tebakan.
+
+`GET /detections` juga menerima filter `?camera=<nama>`.
+
 ## Arm Command (usulan/belum diimplementasikan backend)
 
 > Endpoint ini BELUM ada di `routes/api.php` backend (baru ada GET untuk
