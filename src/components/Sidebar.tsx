@@ -123,6 +123,13 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
       onPress: () => {},
     },
     {
+      icon: "return-down-back-outline",
+      label: "QC Returns",
+      href: "/(app)/returns",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
       icon: "school-outline",
       label: "Training",
       href: "/(app)/training",

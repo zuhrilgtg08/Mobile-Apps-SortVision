@@ -6,6 +6,7 @@ import {
     registerWithEmail,
     restoreAuthSession,
 } from "@/services/authApi";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import {
     createContext,
@@ -49,6 +50,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
@@ -58,7 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setToken(null);
     setRole(null);
-  }, []);
+    // Buang seluruh cache query: data produk/user/log milik sesi sebelumnya
+    // tidak boleh terlihat oleh akun berikutnya yang login di perangkat ini.
+    queryClient.clear();
+  }, [queryClient]);
 
   const handleUnauthorized = useCallback(() => {
     clearSessionState();
