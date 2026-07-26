@@ -101,4 +101,9 @@ export const queryKeys = {
     queue: (params: unknown) => ["annotations", "queue", params] as const,
     stats: ["annotations", "stats"] as const,
   },
+  conveyor: {
+    all: ["conveyor"] as const,
+    status: ["conveyor", "status"] as const,
+    alerts: (params: unknown) => ["conveyor", "alerts", params] as const,
+  },
 } as const;

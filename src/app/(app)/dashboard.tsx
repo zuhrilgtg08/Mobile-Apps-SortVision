@@ -9,16 +9,12 @@ import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { type DetectionItem } from "@/services/statusApi";
 import { type StatsRange } from "@/services/statsApi";
 
-/**
- * Pintasan ke layar yang paling sering dituju dari dashboard. Sengaja hanya
- * berisi rute yang benar-benar ada — scan QR menyusul setelah expo-camera
- * dipasang, daripada menampilkan tombol yang tidak melakukan apa-apa.
- */
+/** Pintasan ke layar yang paling sering dituju dari dashboard. */
 const QUICK_ACTIONS = [
+  { label: "Scan QR", icon: "scan-outline" as const, href: "/(app)/scan" as const, color: "#16a34a" },
   { label: "Live Camera", icon: "videocam-outline" as const, href: "/(app)/live-camera" as const, color: "#2563eb" },
+  { label: "Conveyor", icon: "git-commit-outline" as const, href: "/(app)/conveyor" as const, color: "#ea580c" },
   { label: "Retur", icon: "return-down-back-outline" as const, href: "/(app)/returns" as const, color: "#e11d48" },
-  { label: "Training", icon: "school-outline" as const, href: "/(app)/training" as const, color: "#7c3aed" },
-  { label: "Log", icon: "document-text-outline" as const, href: "/(app)/logs" as const, color: "#0891b2" },
 ];
 
 const RANGES: { key: StatsRange; label: string }[] = [

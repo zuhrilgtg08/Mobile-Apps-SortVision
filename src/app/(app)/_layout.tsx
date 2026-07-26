@@ -37,6 +37,8 @@ export default function AppLayout() {
     "/(app)/roles": "Roles & Permission",
     "/(app)/live-camera": "Live Camera",
     "/(app)/arm-control": "Arm Control",
+    "/(app)/conveyor": "Conveyor",
+    "/(app)/scan": "Scan QR",
     "/(app)/returns": "QC Returns",
     "/(app)/training": "Training",
     "/(app)/annotation": "Label & Annotation",
@@ -59,6 +61,8 @@ export default function AppLayout() {
           <Stack.Screen name="roles" />
           <Stack.Screen name="live-camera" />
           <Stack.Screen name="arm-control" />
+          <Stack.Screen name="conveyor" />
+          <Stack.Screen name="scan" />
           <Stack.Screen name="returns" />
           <Stack.Screen name="training" />
           <Stack.Screen name="annotation" />
