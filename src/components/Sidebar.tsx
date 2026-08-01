@@ -1,9 +1,18 @@
-import { useEffect, useRef } from "react";
-import { View, Text, Pressable, StyleSheet, Animated, Dimensions, TouchableWithoutFeedback, ScrollView } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useRouter, usePathname } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
+import { Ionicons } from "@expo/vector-icons";
+import { usePathname, useRouter } from "expo-router";
+import { useEffect, useState } from "react";
+import {
+  Animated,
+  Dimensions,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableWithoutFeedback,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const SIDEBAR_WIDTH = SCREEN_WIDTH * 0.75;
@@ -44,8 +53,9 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const translateX = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
-  const overlayOpacity = useRef(new Animated.Value(0)).current;
+  // Lazy init lewat useState supaya nilai Animated stabil tanpa membaca ref.current saat render.
+  const [translateX] = useState(() => new Animated.Value(-SIDEBAR_WIDTH));
+  const [overlayOpacity] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     Animated.parallel([
@@ -63,16 +73,104 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
   }, [visible, translateX, overlayOpacity]);
 
   const navItems: NavItemProps[] = [
-    { icon: "grid-outline", label: "Dashboard", href: "/(app)/dashboard", isActive: false, onPress: () => {} },
-    { icon: "people-outline", label: "Users", href: "/(app)/users", isActive: false, onPress: () => {} },
-    { icon: "cube-outline", label: "Products", href: "/(app)/products", isActive: false, onPress: () => {} },
-    { icon: "layers-outline", label: "Categories", href: "/(app)/categories", isActive: false, onPress: () => {} },
-    { icon: "shield-checkmark-outline", label: "Roles & Permission", href: "/(app)/roles", isActive: false, onPress: () => {} },
-    { icon: "videocam-outline", label: "Live Camera", href: "/(app)/live-camera", isActive: false, onPress: () => {} },
-    { icon: "school-outline", label: "Training", href: "/(app)/training", isActive: false, onPress: () => {} },
-    { icon: "pricetag-outline", label: "Label & Annotation", href: "/(app)/annotation", isActive: false, onPress: () => {} },
-    { icon: "settings-outline", label: "Settings", href: "/(app)/settings", isActive: false, onPress: () => {} },
-    { icon: "document-text-outline", label: "Logs Sistem", href: "/(app)/logs", isActive: false, onPress: () => {} },
+    {
+      icon: "grid-outline",
+      label: "Dashboard",
+      href: "/(app)/dashboard",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "people-outline",
+      label: "Users",
+      href: "/(app)/users",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "cube-outline",
+      label: "Products",
+      href: "/(app)/products",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "layers-outline",
+      label: "Categories",
+      href: "/(app)/categories",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "shield-checkmark-outline",
+      label: "Roles & Permission",
+      href: "/(app)/roles",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "videocam-outline",
+      label: "Live Camera",
+      href: "/(app)/live-camera",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "hardware-chip-outline",
+      label: "Arm Control",
+      href: "/(app)/arm-control",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "git-commit-outline",
+      label: "Conveyor",
+      href: "/(app)/conveyor",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "scan-outline",
+      label: "Scan QR",
+      href: "/(app)/scan",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "return-down-back-outline",
+      label: "QC Returns",
+      href: "/(app)/returns",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "school-outline",
+      label: "Training",
+      href: "/(app)/training",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "pricetag-outline",
+      label: "Label & Annotation",
+      href: "/(app)/annotation",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "settings-outline",
+      label: "Settings",
+      href: "/(app)/settings",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "document-text-outline",
+      label: "Logs Sistem",
+      href: "/(app)/logs",
+      isActive: false,
+      onPress: () => {},
+    },
   ];
 
   const items = navItems.map((item) => ({
@@ -85,12 +183,20 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
   }));
 
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 999 }]} pointerEvents={visible ? "auto" : "none"}>
+    <View
+      style={[StyleSheet.absoluteFill, { zIndex: 999 }]}
+      pointerEvents={visible ? "auto" : "none"}
+    >
       <TouchableWithoutFeedback onPress={onClose}>
         <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]} />
       </TouchableWithoutFeedback>
 
-      <Animated.View style={[styles.sidebar, { transform: [{ translateX }], paddingTop: insets.top }]}>
+      <Animated.View
+        style={[
+          styles.sidebar,
+          { transform: [{ translateX }], paddingTop: insets.top },
+        ]}
+      >
         <View style={styles.brand}>
           <View style={styles.logo}>
             <Ionicons name="scan-outline" size={28} color="#fff" />
@@ -101,25 +207,41 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
           </View>
         </View>
 
-        <ScrollView style={styles.navScroll} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.navScroll}
+          showsVerticalScrollIndicator={false}
+        >
           {items.map((item, idx) => (
             <NavItem key={idx} {...item} />
           ))}
         </ScrollView>
 
-        <View style={[styles.userFooter, { paddingBottom: insets.bottom + 16 }]}>
+        <View
+          style={[styles.userFooter, { paddingBottom: insets.bottom + 16 }]}
+        >
           <View style={styles.userInfo}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
-                {user?.name?.split(" ").map((n) => n[0]).join("").toUpperCase() || "U"}
+                {user?.name
+                  ?.split(" ")
+                  .map((n) => n[0])
+                  .join("")
+                  .toUpperCase() || "U"}
               </Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.userName} numberOfLines={1}>{user?.name}</Text>
+              <Text style={styles.userName} numberOfLines={1}>
+                {user?.name}
+              </Text>
               <Text style={styles.userRole}>{user?.role}</Text>
             </View>
           </View>
-          <Pressable onPress={logout} style={styles.logoutBtn}>
+          <Pressable
+            onPress={() => {
+              void logout();
+            }}
+            style={styles.logoutBtn}
+          >
             <Ionicons name="log-out-outline" size={20} color="#dc2626" />
           </Pressable>
         </View>

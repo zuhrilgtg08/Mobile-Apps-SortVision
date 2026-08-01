@@ -1,71 +1,186 @@
-import { useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
+import { useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import StatusBadge from "@/components/StatusBadge";
+import {
+  useAnnotationQueue,
+  useAnnotationStats,
+  useApproveAnnotation,
+  useRelabelAnnotation,
+} from "@/hooks/useAnnotations";
+import {
+  type AnnotationQueueItem,
+  type DetectionStatus,
+} from "@/services/annotationApi";
+import { ApiError } from "@/services/api";
 
-type Annotation = {
-  id: number;
-  product: string;
-  image: string;
-  status: "Pending" | "Approved" | "Rejected";
-  submittedBy: string;
-  date: string;
-};
-
-const MOCK_ANNOTATIONS: Annotation[] = [
-  { id: 1, product: "Yogurt Strawberry #001", image: "IMG-001", status: "Pending", submittedBy: "Operator", date: "2026-07-08" },
-  { id: 2, product: "Susu UHT Coklat #002", image: "IMG-002", status: "Pending", submittedBy: "Operator", date: "2026-07-08" },
-  { id: 3, product: "Keju Cheddar #003", image: "IMG-003", status: "Approved", submittedBy: "Supervisor", date: "2026-07-07" },
-  { id: 4, product: "Yogurt Blueberry #004", image: "IMG-004", status: "Rejected", submittedBy: "Supervisor", date: "2026-07-07" },
-  { id: 5, product: "Susu Kedelai #005", image: "IMG-005", status: "Pending", submittedBy: "Operator", date: "2026-07-06" },
+/**
+ * Sama dengan `Detection::TRAINABLE_STATUSES` di backend — hanya kelas visual
+ * ini yang bisa dipilih sebagai koreksi label. Status workflow ("returned",
+ * "recheck") sengaja tidak muncul di sini.
+ */
+const TRAINABLE_CLASSES: { key: DetectionStatus; label: string }[] = [
+  { key: "passed", label: "Passed" },
+  { key: "unreadable", label: "QR Unreadable" },
+  { key: "damaged", label: "Damaged" },
+  { key: "scratched", label: "Scratched" },
 ];
 
-export default function AnnotationScreen() {
-  const [activeTab, setActiveTab] = useState<"Pending" | "Approved" | "Rejected">("Pending");
+function detectionTitle(item: AnnotationQueueItem): string {
+  return item.code ?? item.product?.name ?? `Deteksi #${item.id}`;
+}
 
-  const filtered = MOCK_ANNOTATIONS.filter((a) => a.status === activeTab);
+function QueueCard({ item }: { item: AnnotationQueueItem }) {
+  const [pickingClass, setPickingClass] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const approve = useApproveAnnotation();
+  const relabel = useRelabelAnnotation();
+
+  const busy = approve.isPending || relabel.isPending;
+
+  const onApprove = useCallback(async () => {
+    setFeedback(null);
+    try {
+      await approve.mutateAsync(item.id);
+    } catch (error) {
+      setFeedback(error instanceof ApiError ? error.message : "Gagal menyetujui label.");
+    }
+  }, [approve, item.id]);
+
+  const onRelabel = useCallback(
+    async (label: DetectionStatus) => {
+      setFeedback(null);
+      try {
+        await relabel.mutateAsync({ detectionId: item.id, label });
+        setPickingClass(false);
+      } catch (error) {
+        setFeedback(error instanceof ApiError ? error.message : "Gagal memperbarui label.");
+      }
+    },
+    [relabel, item.id],
+  );
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.tabs}>
-        {(["Pending", "Approved", "Rejected"] as const).map((tab) => {
-          const count = MOCK_ANNOTATIONS.filter((a) => a.status === tab).length;
-          return (
-            <Pressable
-              key={tab}
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
-              onPress={() => setActiveTab(tab)}
-            >
-              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                {tab} ({count})
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {filtered.map((ann) => (
-        <View key={ann.id} style={styles.card}>
-          <View style={styles.cardImage}>
-            <Ionicons name="image-outline" size={32} color="#9ca3af" />
-          </View>
-          <View style={styles.cardBody}>
-            <Text style={styles.cardTitle}>{ann.product}</Text>
-            <Text style={styles.cardMeta}>{ann.submittedBy} • {ann.date}</Text>
-            <StatusBadge status={ann.status} />
-          </View>
-          {ann.status === "Pending" && (
-            <View style={styles.cardActions}>
-              <Pressable style={styles.approveBtn}>
-                <Ionicons name="checkmark" size={20} color="#fff" />
-              </Pressable>
-              <Pressable style={styles.rejectBtn}>
-                <Ionicons name="close" size={20} color="#fff" />
-              </Pressable>
-            </View>
+    <View style={styles.card}>
+      <View style={styles.cardRow}>
+        <View style={styles.cardImage}>
+          {item.image_url ? (
+            <Image source={{ uri: item.image_url }} style={styles.cardImagePhoto} resizeMode="cover" />
+          ) : (
+            <Ionicons name="image-outline" size={28} color="#9ca3af" />
           )}
         </View>
-      ))}
+        <View style={styles.cardBody}>
+          <Text style={styles.cardTitle} numberOfLines={1}>{detectionTitle(item)}</Text>
+          <Text style={styles.cardMeta} numberOfLines={1}>
+            {item.product?.name ?? "Tanpa produk"}
+          </Text>
+          <StatusBadge status={item.status} />
+        </View>
+        {!pickingClass && (
+          <View style={styles.cardActions}>
+            <Pressable style={styles.approveBtn} onPress={onApprove} disabled={busy}>
+              {approve.isPending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="checkmark" size={20} color="#fff" />
+              )}
+            </Pressable>
+            <Pressable
+              style={styles.relabelBtn}
+              onPress={() => setPickingClass(true)}
+              disabled={busy}
+            >
+              <Ionicons name="pencil" size={18} color="#fff" />
+            </Pressable>
+          </View>
+        )}
+      </View>
+
+      {pickingClass && (
+        <View style={styles.classPicker}>
+          <Text style={styles.classPickerLabel}>Koreksi ke kelas:</Text>
+          <View style={styles.classChips}>
+            {TRAINABLE_CLASSES.map((cls) => (
+              <Pressable
+                key={cls.key}
+                style={styles.classChip}
+                onPress={() => onRelabel(cls.key)}
+                disabled={busy}
+              >
+                {relabel.isPending && relabel.variables?.label === cls.key ? (
+                  <ActivityIndicator size="small" color="#2563eb" />
+                ) : (
+                  <Text style={styles.classChipText}>{cls.label}</Text>
+                )}
+              </Pressable>
+            ))}
+          </View>
+          <Pressable onPress={() => setPickingClass(false)} disabled={busy}>
+            <Text style={styles.cancelText}>Batal</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {feedback ? <Text style={styles.errorText}>{feedback}</Text> : null}
+    </View>
+  );
+}
+
+export default function AnnotationScreen() {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const statsQuery = useAnnotationStats();
+  const queueQuery = useAnnotationQueue();
+
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([statsQuery.refetch(), queueQuery.refetch()]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [statsQuery, queueQuery]);
+
+  const items = queueQuery.data?.data ?? [];
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}
+    >
+      <View style={styles.statsRow}>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{statsQuery.data?.pending ?? "—"}</Text>
+          <Text style={styles.statLabel}>Menunggu label</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{statsQuery.data?.labelled ?? "—"}</Text>
+          <Text style={styles.statLabel}>Sudah dilabeli</Text>
+        </View>
+      </View>
+
+      {queueQuery.isError ? (
+        <Text style={styles.empty}>
+          {queueQuery.error instanceof ApiError ? queueQuery.error.message : "Gagal memuat antrian."}
+        </Text>
+      ) : queueQuery.isLoading ? (
+        <ActivityIndicator size="small" color="#2563eb" style={{ marginTop: 24 }} />
+      ) : items.length === 0 ? (
+        <Text style={styles.empty}>Antrian labelling kosong. Semua deteksi sudah dilabeli.</Text>
+      ) : (
+        items.map((item) => <QueueCard key={item.id} item={item} />)
+      )}
     </ScrollView>
   );
 }
@@ -73,36 +188,33 @@ export default function AnnotationScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16, paddingBottom: 32 },
-  tabs: {
-    flexDirection: "row",
-    backgroundColor: "#f3f4f6",
-    borderRadius: 14,
-    padding: 4,
-    marginBottom: 16,
-  },
-  tab: {
+  statsRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
+  statCard: {
     flex: 1,
-    paddingVertical: 10,
-    alignItems: "center",
-    borderRadius: 12,
-  },
-  tabActive: { backgroundColor: "#fff", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
-  tabText: { fontSize: 13, fontFamily: "Poppins_500Medium", color: "#6b7280" },
-  tabTextActive: { color: "#111827", fontFamily: "Poppins_600SemiBold" },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
     backgroundColor: "#fff",
-    borderRadius: 16,
+    borderRadius: 14,
     padding: 14,
-    marginBottom: 8,
-    gap: 12,
+    alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 1,
   },
+  statValue: { fontSize: 22, fontFamily: "Poppins_700Bold", color: "#111827" },
+  statLabel: { fontSize: 12, fontFamily: "Poppins_500Medium", color: "#6b7280", marginTop: 2 },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  cardRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   cardImage: {
     width: 52,
     height: 52,
@@ -110,7 +222,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#f9fafb",
     justifyContent: "center",
     alignItems: "center",
+    overflow: "hidden",
   },
+  cardImagePhoto: { width: "100%", height: "100%" },
   cardBody: { flex: 1, gap: 4 },
   cardTitle: { fontSize: 14, fontFamily: "Poppins_600SemiBold", color: "#111827" },
   cardMeta: { fontSize: 12, fontFamily: "Poppins_400Regular", color: "#6b7280" },
@@ -123,12 +237,38 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  rejectBtn: {
+  relabelBtn: {
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: "#dc2626",
+    backgroundColor: "#2563eb",
     justifyContent: "center",
     alignItems: "center",
+  },
+  classPicker: { marginTop: 12, gap: 8 },
+  classPickerLabel: { fontSize: 12, fontFamily: "Poppins_500Medium", color: "#6b7280" },
+  classChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  classChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "#eff6ff",
+    minWidth: 64,
+    alignItems: "center",
+  },
+  classChipText: { fontSize: 12, fontFamily: "Poppins_500Medium", color: "#2563eb" },
+  cancelText: { fontSize: 12, fontFamily: "Poppins_500Medium", color: "#9ca3af" },
+  errorText: {
+    fontSize: 12,
+    fontFamily: "Poppins_400Regular",
+    color: "#b91c1c",
+    marginTop: 8,
+  },
+  empty: {
+    fontSize: 13,
+    fontFamily: "Poppins_400Regular",
+    color: "#9ca3af",
+    paddingVertical: 24,
+    textAlign: "center",
   },
 });

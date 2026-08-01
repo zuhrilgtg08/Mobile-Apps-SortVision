@@ -31,7 +31,9 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+!.env.example
 
 # typescript
 *.tsbuildinfo
@@ -41,6 +43,12 @@ example
 # generated native folders
 /ios
 /android
+
+Innowork-dashboard-app-v1
+analysis-mobile-vs-dashboard-gap.txt
+mobilefase45.bundle
+mobilefase3.bundle
+mobilefase3.bundle
 analysis-mobile-vs-dashboard-gap.txt
 mobilefase3.bundle
 mobilefase45.bundle

@@ -1,29 +1,94 @@
-import { useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator } from "react-native";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  collectErrors,
+  hasErrors,
+  validateEmail,
+  validateRequired,
+  type FieldErrors,
+} from "@/lib/validation";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
-import { useAuth } from "@/contexts/AuthContext";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+
+type LoginField = "email" | "password";
 
 export default function LoginScreen() {
   const { login, isLoading } = useAuth();
-  const [email, setEmail] = useState("admin@sortvision.id");
-  const [password, setPassword] = useState("password");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors<LoginField>>({});
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const clearFieldError = (field: LoginField) => {
+    if (errorMessage) setErrorMessage(null);
+    setFieldErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  };
 
   const handleLogin = async () => {
-    await login(email, password);
-    router.replace("/(app)/dashboard");
+    setErrorMessage(null);
+
+    // Password hanya dicek "wajib diisi": aturan panjang milik pendaftaran,
+    // akun lama boleh saja punya password lebih pendek.
+    const validationErrors = collectErrors<LoginField>({
+      email: validateEmail(email),
+      password: validateRequired(password, "Password"),
+    });
+
+    setFieldErrors(validationErrors);
+    if (hasErrors(validationErrors)) {
+      return;
+    }
+
+    try {
+      await login(email, password);
+      router.replace("/(app)/dashboard");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Silakan coba lagi.";
+      // Tampilkan inline (jalan di web & mobile). Alert native tetap dipakai
+      // sebagai tambahan di iOS/Android; di web react-native-web sering no-op.
+      setErrorMessage(message);
+      if (Platform.OS !== "web") {
+        Alert.alert("Login gagal", message);
+      }
+    }
   };
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.brand}>
           <View style={styles.logo}>
             <Ionicons name="scan-outline" size={36} color="#fff" />
           </View>
           <Text style={styles.brandName}>SortVision</Text>
-          <Text style={styles.tagline}>AI Visual Quality Control{'\n'}untuk Industri Sorting & Logistik</Text>
+          <Text style={styles.tagline}>
+            AI Visual Quality Control{"\n"}untuk Industri Sorting & Logistik
+          </Text>
         </View>
 
         <View style={styles.card}>
@@ -33,36 +98,74 @@ export default function LoginScreen() {
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Email</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, fieldErrors.email && styles.inputError]}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(t) => {
+                setEmail(t);
+                clearFieldError("email");
+              }}
               placeholder="email@example.com"
               placeholderTextColor="#9ca3af"
               keyboardType="email-address"
               autoCapitalize="none"
+              autoComplete="email"
             />
+            {fieldErrors.email ? (
+              <Text style={styles.fieldError}>{fieldErrors.email}</Text>
+            ) : null}
           </View>
 
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Password</Text>
             <View style={styles.pwWrap}>
               <TextInput
-                style={[styles.input, { paddingRight: 44 }]}
+                style={[
+                  styles.input,
+                  { paddingRight: 44 },
+                  fieldErrors.password && styles.inputError,
+                ]}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(t) => {
+                  setPassword(t);
+                  clearFieldError("password");
+                }}
                 placeholder="••••••••"
                 placeholderTextColor="#9ca3af"
                 secureTextEntry={!showPw}
+                autoComplete="current-password"
               />
-              <Pressable style={styles.eyeBtn} onPress={() => setShowPw(!showPw)}>
-                <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={20} color="#6b7280" />
+              <Pressable
+                style={styles.eyeBtn}
+                onPress={() => setShowPw(!showPw)}
+              >
+                <Ionicons
+                  name={showPw ? "eye-off-outline" : "eye-outline"}
+                  size={20}
+                  color="#6b7280"
+                />
               </Pressable>
             </View>
+            {fieldErrors.password ? (
+              <Text style={styles.fieldError}>{fieldErrors.password}</Text>
+            ) : null}
           </View>
 
-          <Link href="/forgot-password" style={styles.forgotLink}>Lupa password?</Link>
+          <Link href="/forgot-password" style={styles.forgotLink}>
+            Lupa password?
+          </Link>
 
-          <Pressable style={styles.btn} onPress={handleLogin} disabled={isLoading}>
+          {errorMessage ? (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle-outline" size={18} color="#dc2626" />
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            </View>
+          ) : null}
+
+          <Pressable
+            style={styles.btn}
+            onPress={handleLogin}
+            disabled={isLoading}
+          >
             {isLoading ? (
               <ActivityIndicator color="#fff" />
             ) : (
@@ -72,7 +175,9 @@ export default function LoginScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>Belum punya akun?</Text>
-            <Link href="/register" style={styles.footerLink}>Daftar</Link>
+            <Link href="/register" style={styles.footerLink}>
+              Daftar
+            </Link>
           </View>
         </View>
       </ScrollView>
@@ -113,9 +218,20 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   title: { fontSize: 22, fontFamily: "Poppins_700Bold", color: "#111827" },
-  subtitle: { fontSize: 14, fontFamily: "Poppins_400Regular", color: "#6b7280", marginTop: 4, marginBottom: 24 },
+  subtitle: {
+    fontSize: 14,
+    fontFamily: "Poppins_400Regular",
+    color: "#6b7280",
+    marginTop: 4,
+    marginBottom: 24,
+  },
   fieldGroup: { marginBottom: 16 },
-  label: { fontSize: 13, fontFamily: "Poppins_500Medium", color: "#374151", marginBottom: 6 },
+  label: {
+    fontSize: 13,
+    fontFamily: "Poppins_500Medium",
+    color: "#374151",
+    marginBottom: 6,
+  },
   input: {
     backgroundColor: "#f9fafb",
     borderWidth: 1,
@@ -127,6 +243,13 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_400Regular",
     color: "#111827",
   },
+  inputError: { borderColor: "#dc2626" },
+  fieldError: {
+    fontSize: 12,
+    fontFamily: "Poppins_400Regular",
+    color: "#dc2626",
+    marginTop: 6,
+  },
   pwWrap: { position: "relative" },
   eyeBtn: { position: "absolute", right: 14, top: 14 },
   forgotLink: {
@@ -136,6 +259,22 @@ const styles = StyleSheet.create({
     color: "#2563eb",
     marginBottom: 24,
   },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#fce7e7",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Poppins_500Medium",
+    color: "#dc2626",
+  },
   btn: {
     backgroundColor: "#2563eb",
     borderRadius: 14,
@@ -143,7 +282,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   btnText: { color: "#fff", fontSize: 16, fontFamily: "Poppins_600SemiBold" },
-  footer: { flexDirection: "row", justifyContent: "center", marginTop: 24, gap: 4 },
-  footerText: { fontSize: 13, fontFamily: "Poppins_400Regular", color: "#6b7280" },
-  footerLink: { fontSize: 13, fontFamily: "Poppins_600SemiBold", color: "#2563eb" },
+  footer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 24,
+    gap: 4,
+  },
+  footerText: {
+    fontSize: 13,
+    fontFamily: "Poppins_400Regular",
+    color: "#6b7280",
+  },
+  footerLink: {
+    fontSize: 13,
+    fontFamily: "Poppins_600SemiBold",
+    color: "#2563eb",
+  },
 });
