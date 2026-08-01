@@ -109,6 +109,16 @@ function detectionFromMqtt(payload: unknown): DetectionItem | null {
     status: asString(obj.status),
     qr_value: asString(obj.qr_value),
     confidence: asNumber(obj.confidence),
+    // Diteruskan kalau ada supaya deteksi dari MQTT bisa dipakai overlay yang
+    // sama dengan deteksi dari REST. Hanya diterima bila bentuknya benar-benar
+    // [x1, y1, x2, y2] — kotak setengah jadi lebih buruk daripada tidak ada.
+    bbox:
+      Array.isArray(obj.bbox) && obj.bbox.length === 4
+        ? (obj.bbox.map(Number) as [number, number, number, number])
+        : null,
+    label: asString(obj.label),
+    frame_width: asNumber(obj.frame_width),
+    frame_height: asNumber(obj.frame_height),
     detected_at: asString(obj.detected_at) ?? new Date().toISOString(),
   };
 }
@@ -241,9 +251,12 @@ export function ArmProvider({ children }: { children: ReactNode }) {
       try {
         const result = await sendArmCommand(category, context);
         setLastError(null);
-        // Optimistic echo: refresh arm state so UI shows latest immediately.
+
+        // Command yang diterima mengubah state arm di sisi perangkat. Tanpa
+        // refresh, layar masih menampilkan state lama sampai polling berikutnya.
+        // Sengaja tidak menebak state baru secara optimistis: yang berwenang
+        // melaporkannya adalah telemetri `arm/status`, bukan aplikasi ini.
         void refresh();
-        return result;
       } catch (error) {
         const message =
           error instanceof ArmCommandUnavailableError
