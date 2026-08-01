@@ -257,6 +257,8 @@ export function ArmProvider({ children }: { children: ReactNode }) {
         // Sengaja tidak menebak state baru secara optimistis: yang berwenang
         // melaporkannya adalah telemetri `arm/status`, bukan aplikasi ini.
         void refresh();
+
+        return result;
       } catch (error) {
         const message =
           error instanceof ArmCommandUnavailableError
