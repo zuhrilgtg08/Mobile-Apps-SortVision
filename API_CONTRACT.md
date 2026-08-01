@@ -216,8 +216,8 @@ posisi tebakan.
 > (kategori → `joint_angles`) ada di `ArmMqttService::buildCommandPayload` (Laravel).
 
 | Endpoint       | Method | Request body                                                    | Success response                          |
-| -------------- | ------ | --------------------------------------------------------------- | ----------------------------------------- |
-| `/arm/command` | `POST` | `{ "category": string, "context"?: { [key: string]: unknown } }` | `{ "message": string, "category": string }` |
+| -------------- | ------ | ----------------------------------------------------------------- | ----------------------------------------- |
+| `/arm/command` | `POST` | `{ "category": string, "context"?: { [key: string]: unknown } }` | `{ "message": string, "command": { "category": string, "zone": string, "joint_angles": number[], "issued_at": string } }` |
 
 **Kode error — masing-masing berarti hal berbeda:**
 
@@ -225,14 +225,19 @@ posisi tebakan.
 | ------ | -------------------------------------------------------------------- | ------------------------------------------- |
 | `401`  | Token kadaluarsa                                                      | Kembali ke login                            |
 | `403`  | Role tidak punya akses **write** pada modul "Live Camera", atau akun nonaktif | Tampilkan "tidak punya akses", jangan retry |
-| `422`  | `category` kosong, atau `context` bukan objek                         | Perbaiki input                              |
+| `422`  | `category`/`context` tidak valid, **atau** kategori tidak punya preset zona (dan preset `default` tidak tersedia sebagai fallback) | Perbaiki input / hubungi admin untuk seed preset |
 | `429`  | Melebihi batas 30 command per menit                                   | Tunggu, lalu coba lagi                      |
-| `503`  | Broker MQTT tidak terjangkau, **atau** preset zona belum di-seed      | Boleh dicoba lagi; pesannya membedakan keduanya |
+| `503`  | Broker MQTT tidak terjangkau (preset sudah resolve, publish MQTT-nya yang gagal) | Boleh dicoba lagi                           |
 
 Catatan penting soal `category`: `TargetZonePreset::forCategory()` jatuh ke
 preset `default` bila kategori tidak dikenal, jadi kategori asing **tetap
-diterima** dan diarahkan ke zona default — bukan ditolak `422`. Jangan asumsikan
-`200` berarti kategorinya punya preset khusus.
+diterima** dan diarahkan ke zona default — bukan ditolak `422` — selama
+preset `default` sudah di-seed. Jangan asumsikan `200` berarti kategorinya
+punya preset khusus.
+
+`command.zone`/`command.joint_angles` adalah preset yang benar-benar dipakai
+(hasil resolve `TargetZonePreset::forCategory()`), dipakai mobile untuk
+menampilkan konfirmasi zona/sudut sendi ke operator tanpa request terpisah.
 
 Backend menambahkan `source: "mobile"` dan `issued_by: <user id>` ke `context`
 sebelum publish, dan mencatat setiap command yang diterima ke system log
