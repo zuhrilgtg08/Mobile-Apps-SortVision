@@ -66,12 +66,18 @@ Mobile membaca format bawaan Laravel dan memetakannya ke error per-field di form
   "product_id": number | null,
   "camera": string | null,
   "conveyor": string | null,
-  "status": string | null,     // mis. "pass" | "fail" | "reject"
+  "status": string | null,     // mis. "passed" | "damaged" | "scratched"
   "qr_value": string | null,
-  "confidence": number | null, // 0..1
+  "confidence": number | null,
+  "bbox": [x1, y1, x2, y2] | null, // koordinat piksel frame ASLI (lihat Live Camera)
+  "label": string | null,
+  "frame_width": number | null,
+  "frame_height": number | null,
   "detected_at": string | null // ISO 8601
 }
 ```
+
+`GET /detections` menerima query `camera`, `status`, dan `per_page`.
 
 ### `ArmResponse` (`GET /arm`, ArmController backend)
 
@@ -203,59 +209,34 @@ posisi tebakan.
 
 `GET /detections` juga menerima filter `?camera=<nama>`.
 
-## Arm Command (Sudah ada di backend)
+## Arm Command (Fase 3 — SUDAH ada di backend)
 
-Endpoint `POST /api/arm/command` mengirim perintah ke robotic arm melalui backend Laravel.
-Backend adalah satu-satunya publisher `arm/command` — mobile **TIDAK** publish MQTT langsung.
-Backend me-resolve kategori ke `TargetZonePreset` (joint angles) dan mengembalikan echo command yang dipublish.
+> Command TIDAK dipublish langsung oleh mobile ke broker MQTT. Backend tetap
+> satu-satunya publisher `arm/command`, karena resolusi `TargetZonePreset`
+> (kategori → `joint_angles`) ada di `ArmMqttService::buildCommandPayload` (Laravel).
 
-Mobile membedakan tiga jenis error:
-- **404/501** → `ArmCommandUnavailableError`: endpoint belum aktif
-- **422** → `ArmZoneUnmappedError`: kategori tidak punya `TargetZonePreset` (konfigurasi)
-- **503** → `ArmBrokerOfflineError`: broker MQTT backend tidak terjangkau (transient, bisa retry)
+| Endpoint       | Method | Request body                                                    | Success response                          |
+| -------------- | ------ | --------------------------------------------------------------- | ----------------------------------------- |
+| `/arm/command` | `POST` | `{ "category": string, "context"?: { [key: string]: unknown } }` | `{ "message": string, "category": string }` |
 
-### `GET /api/arm/zones` (baru)
+**Kode error — masing-masing berarti hal berbeda:**
 
-Daftar zona target yang tersedia. Hanya zona dengan `selectable: true` yang boleh dikirim command oleh operator. Zona internal (`default`, `return`) disembunyikan.
+| Status | Arti                                                                 | Tindakan klien                              |
+| ------ | -------------------------------------------------------------------- | ------------------------------------------- |
+| `401`  | Token kadaluarsa                                                      | Kembali ke login                            |
+| `403`  | Role tidak punya akses **write** pada modul "Live Camera", atau akun nonaktif | Tampilkan "tidak punya akses", jangan retry |
+| `422`  | `category` kosong, atau `context` bukan objek                         | Perbaiki input                              |
+| `429`  | Melebihi batas 30 command per menit                                   | Tunggu, lalu coba lagi                      |
+| `503`  | Broker MQTT tidak terjangkau, **atau** preset zona belum di-seed      | Boleh dicoba lagi; pesannya membedakan keduanya |
 
-**200**
-```jsonc
-{
-  "zones": [
-    { "slug": "yogurt", "label": "Yogurt", "joint_angles": [10, 15, 20, 25, 30, 35], "selectable": true },
-    { "slug": "default", "label": "Default", "joint_angles": [0, 0, 0, 0, 0, 0], "selectable": false }
-  ]
-}
-```
+Catatan penting soal `category`: `TargetZonePreset::forCategory()` jatuh ke
+preset `default` bila kategori tidak dikenal, jadi kategori asing **tetap
+diterima** dan diarahkan ke zona default — bukan ditolak `422`. Jangan asumsikan
+`200` berarti kategorinya punya preset khusus.
 
-### Response `POST /api/arm/command`
-
-Berisi echo command yang dipublish — bukan state arm baru (ESP32 yang tahu ia bergerak).
-
-**200**
-```jsonc
-{
-  "message": "Command diterbitkan ke arm/command",
-  "command": {
-    "category": "Yogurt",
-    "zone": "yogurt",
-    "joint_angles": [10, 15, 20, 25, 30, 35],
-    "issued_at": "2026-07-26T19:00:00+00:00"
-  }
-}
-```
-
-| Endpoint            | Method | Request body                                                       | Success response                                                      | Error codes                                                                  |
-| ------------------- | ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `/arm/command`    | `POST` | `{ "category": string, "context"?: object }` | `{ "message": string, "command": { category, zone, joint_angles, issued_at } }` | `401`, `404`/`501`, `422`, `503` |
-| `/arm/zones`      | `GET`  | none                                                               | `{ "zones": [{ slug, label, joint_angles, selectable }] }`           | `401`                                                                        |
-
-### Catatan tambahan
-
-- `joint_angles` sudah di-resolve oleh backend (bukan dikirim mentah oleh mobile).
-- `context` opsional untuk metadata tambahan (mis. `detection_id`, `source`).
-- Mobile menampilkan echo command di UI tanpa mengarang `state` arm — status arm
-  diperbarui via polling REST atau MQTT telemetry.
+Backend menambahkan `source: "mobile"` dan `issued_by: <user id>` ke `context`
+sebelum publish, dan mencatat setiap command yang diterima ke system log
+(`source: "arm"`) supaya gerakan fisik bisa dilacak ke akun pemesannya.
 
 ## MQTT (telemetry realtime, opsional)
 
