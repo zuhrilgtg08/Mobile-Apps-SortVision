@@ -123,6 +123,20 @@ export default function Sidebar({ visible, onClose }: SidebarProps) {
       onPress: () => {},
     },
     {
+      icon: "git-commit-outline",
+      label: "Conveyor",
+      href: "/(app)/conveyor",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
+      icon: "scan-outline",
+      label: "Scan QR",
+      href: "/(app)/scan",
+      isActive: false,
+      onPress: () => {},
+    },
+    {
       icon: "return-down-back-outline",
       label: "QC Returns",
       href: "/(app)/returns",

@@ -1,10 +1,12 @@
 import { EmptyState, ErrorState, LoadingState } from "@/components/QueryStates";
 import StatusBadge from "@/components/StatusBadge";
 import {
+  useActivateTrainingModel,
   useStartTrainingRun,
   useTrainingDataset,
   useTrainingRuns,
 } from "@/hooks/useTrainingRuns";
+import { ApiError } from "@/services/api";
 import { type TrainingRun } from "@/services/trainingApi";
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
@@ -41,6 +43,7 @@ export default function TrainingScreen() {
   const runsQuery = useTrainingRuns({ per_page: 12 });
   const datasetQuery = useTrainingDataset();
   const startRun = useStartTrainingRun();
+  const activate = useActivateTrainingModel();
 
   const runs = runsQuery.data?.data ?? [];
   const dataset = datasetQuery.data;
@@ -52,6 +55,36 @@ export default function TrainingScreen() {
     null,
   );
   const activeRun = runs.find((run) => run.is_active) ?? null;
+
+  /**
+   * Aktifkan model sebuah run untuk inference.
+   *
+   * Backend menolak model di bawah ambang mAP dengan `422`. Itu bukan error
+   * yang perlu diperbaiki user — kadang memang model terbaik yang ada — jadi
+   * penolakan ditawarkan sebagai konfirmasi paksa, bukan buntu.
+   */
+  const handleActivate = async (run: TrainingRun, force = false) => {
+    try {
+      const result = await activate.mutateAsync({ id: run.id, force });
+      Alert.alert("Model aktif", result.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Coba lagi.";
+
+      if (!force && error instanceof ApiError && error.status === 422 && run.model_path) {
+        Alert.alert("Mutu di bawah ambang", `${message}\n\nTetap aktifkan?`, [
+          { text: "Batal", style: "cancel" },
+          {
+            text: "Aktifkan",
+            style: "destructive",
+            onPress: () => void handleActivate(run, true),
+          },
+        ]);
+        return;
+      }
+
+      Alert.alert("Tidak bisa mengaktifkan", message);
+    }
+  };
 
   const handleStart = async () => {
     const value = Number.parseInt(epochs, 10);
@@ -217,6 +250,24 @@ export default function TrainingScreen() {
             <View style={styles.runRight}>
               <Text style={styles.runAccuracy}>{formatMap50(run.map50)}</Text>
               <StatusBadge status={run.status_label} />
+              {run.is_active_model ? (
+                <View style={styles.liveBadge}>
+                  <Ionicons name="radio-button-on" size={12} color="#16a34a" />
+                  <Text style={styles.liveText}>Live</Text>
+                </View>
+              ) : run.status === "completed" && run.model_path ? (
+                <Pressable
+                  style={styles.activateBtn}
+                  onPress={() => void handleActivate(run)}
+                  disabled={activate.isPending}
+                >
+                  {activate.isPending && activate.variables?.id === run.id ? (
+                    <ActivityIndicator size="small" color="#2563eb" />
+                  ) : (
+                    <Text style={styles.activateText}>Aktifkan</Text>
+                  )}
+                </Pressable>
+              ) : null}
             </View>
           </View>
         ))
@@ -368,4 +419,23 @@ const styles = StyleSheet.create({
   progressBar: { height: 6, borderRadius: 3, backgroundColor: "#2563eb" },
   runRight: { alignItems: "flex-end", gap: 6 },
   runAccuracy: { fontSize: 15, fontFamily: "Poppins_700Bold", color: "#111827" },
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#f0fdf4",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 99,
+  },
+  liveText: { fontSize: 11, fontFamily: "Poppins_600SemiBold", color: "#16a34a" },
+  activateBtn: {
+    backgroundColor: "#eff6ff",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    minWidth: 68,
+    alignItems: "center",
+  },
+  activateText: { fontSize: 11, fontFamily: "Poppins_600SemiBold", color: "#2563eb" },
 });

@@ -25,6 +25,9 @@ export type TrainingRun = {
   epochs: number;
   /** mAP@50 pada skala 0–100 (bukan 0–1), atau null bila belum ada metrik. */
   map50: number | null;
+  model_path: string | null;
+  /** Run inilah yang modelnya sedang dipakai untuk inference. */
+  is_active_model: boolean;
   dataset_train: number | null;
   dataset_val: number | null;
   error: string | null;
@@ -84,4 +87,40 @@ export async function startTrainingRun(epochs: number): Promise<TrainingRun> {
     body: { epochs },
   });
   return response.data;
+}
+
+export type ActivateModelResult = {
+  message: string;
+  active_training_run_id: number;
+  /**
+   * `false` berarti ML service sedang mati saat reload dicoba — bukan aktivasi
+   * gagal. Setting di backend tetap tertulis.
+   */
+  ml_reloaded: boolean;
+};
+
+/**
+ * Promosikan model sebuah run jadi model live inference.
+ *
+ * Backend menolak dengan `422` bila run belum selesai, tidak punya model, atau
+ * mAP-nya di bawah ambang. `force` hanya melewati ambang mutu — bukan syarat
+ * completed/model, karena memaksa run tanpa model tidak mengaktifkan apa pun.
+ */
+export async function activateTrainingModel(
+  id: number,
+  force = false,
+): Promise<ActivateModelResult> {
+  const response = await apiRequest<{
+    message: string;
+    data: { active_training_run_id: number; ml_reloaded: boolean };
+  }>(`/training-runs/${id}/activate`, {
+    method: "POST",
+    body: force ? { force: true } : {},
+  });
+
+  return {
+    message: response.message,
+    active_training_run_id: response.data.active_training_run_id,
+    ml_reloaded: response.data.ml_reloaded,
+  };
 }

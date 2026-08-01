@@ -1,7 +1,8 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import AppErrorBoundary from "@/components/AppErrorBoundary";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { usePushRegistration } from "@/hooks/usePushNotifications";
 import { createQueryClient } from "@/lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
@@ -21,6 +22,20 @@ import { ActivityIndicator, View } from "react-native";
  * `AuthProvider` dan semua layar di bawahnya) ikut terlindungi.
  */
 export { AppErrorBoundary as ErrorBoundary };
+
+/**
+ * Mendaftarkan/melepas perangkat dari push notification mengikuti status login.
+ *
+ * Ditaruh di root, bukan di layout `(app)`: saat logout, layar authenticated
+ * langsung unmount, sehingga cabang "lepas perangkat" tidak akan pernah jalan
+ * kalau hook-nya ikut ter-unmount bersamanya. Komponen ini tetap hidup lintas
+ * login/logout, jadi kedua transisi tertangkap.
+ */
+function PushRegistration() {
+  const { isAuthenticated } = useAuth();
+  usePushRegistration(isAuthenticated);
+  return null;
+}
 
 export default function RootLayout() {
   // Dibuat sekali lewat lazy initializer: menaruh `new QueryClient()` langsung
@@ -46,6 +61,7 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <PushRegistration />
         <StatusBar style="dark" />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
