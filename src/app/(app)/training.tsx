@@ -1,82 +1,277 @@
-import { View, Text, StyleSheet, ScrollView } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { EmptyState, ErrorState, LoadingState } from "@/components/QueryStates";
 import StatusBadge from "@/components/StatusBadge";
+import {
+  useActivateTrainingModel,
+  useStartTrainingRun,
+  useTrainingDataset,
+  useTrainingRuns,
+} from "@/hooks/useTrainingRuns";
+import { ApiError } from "@/services/api";
+import { type TrainingRun } from "@/services/trainingApi";
+import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
-const RUNS = [
-  { id: 1, model: "YOLOv8n v2.1", status: "Completed", accuracy: "96.8%", epochs: 50, date: "2026-07-05" },
-  { id: 2, model: "YOLOv8n v2.0", status: "Completed", accuracy: "95.2%", epochs: 50, date: "2026-06-28" },
-  { id: 3, model: "YOLOv8s v1.0", status: "Completed", accuracy: "94.1%", epochs: 40, date: "2026-06-20" },
-  { id: 4, model: "YOLOv8n v1.0", status: "Failed", accuracy: "-", epochs: 12, date: "2026-06-15" },
-];
+/** Metrik disimpan backend pada skala 0–100. */
+function formatMap50(value: number | null): string {
+  return value === null ? "-" : `${value.toFixed(1)}%`;
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "-";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 export default function TrainingScreen() {
+  const [epochs, setEpochs] = useState("5");
+
+  const runsQuery = useTrainingRuns({ per_page: 12 });
+  const datasetQuery = useTrainingDataset();
+  const startRun = useStartTrainingRun();
+  const activate = useActivateTrainingModel();
+
+  const runs = runsQuery.data?.data ?? [];
+  const dataset = datasetQuery.data;
+
+  const completed = runs.filter((r) => r.status === "completed");
+  const failed = runs.filter((r) => r.status === "failed");
+  const best = completed.reduce<number | null>(
+    (acc, run) => (run.map50 !== null && (acc === null || run.map50 > acc) ? run.map50 : acc),
+    null,
+  );
+  const activeRun = runs.find((run) => run.is_active) ?? null;
+
+  /**
+   * Aktifkan model sebuah run untuk inference.
+   *
+   * Backend menolak model di bawah ambang mAP dengan `422`. Itu bukan error
+   * yang perlu diperbaiki user — kadang memang model terbaik yang ada — jadi
+   * penolakan ditawarkan sebagai konfirmasi paksa, bukan buntu.
+   */
+  const handleActivate = async (run: TrainingRun, force = false) => {
+    try {
+      const result = await activate.mutateAsync({ id: run.id, force });
+      Alert.alert("Model aktif", result.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Coba lagi.";
+
+      if (!force && error instanceof ApiError && error.status === 422 && run.model_path) {
+        Alert.alert("Mutu di bawah ambang", `${message}\n\nTetap aktifkan?`, [
+          { text: "Batal", style: "cancel" },
+          {
+            text: "Aktifkan",
+            style: "destructive",
+            onPress: () => void handleActivate(run, true),
+          },
+        ]);
+        return;
+      }
+
+      Alert.alert("Tidak bisa mengaktifkan", message);
+    }
+  };
+
+  const handleStart = async () => {
+    const value = Number.parseInt(epochs, 10);
+    if (Number.isNaN(value) || value < 1 || value > 20) {
+      Alert.alert("Epoch tidak valid", "Masukkan angka antara 1 dan 20.");
+      return;
+    }
+
+    try {
+      const run = await startRun.mutateAsync(value);
+      Alert.alert("Training dimulai", `${run.name} sedang diproses.`);
+    } catch (error) {
+      // Backend membedakan alasannya: 422 sampel kurang, 503 ML service mati,
+      // 409 masih ada run berjalan. Pesannya sudah siap tampil.
+      Alert.alert(
+        "Tidak bisa memulai training",
+        error instanceof Error ? error.message : "Coba lagi.",
+      );
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.statsRow}>
         <View style={styles.statBox}>
-          <Text style={styles.statValue}>3</Text>
+          <Text style={styles.statValue}>{completed.length}</Text>
           <Text style={styles.statLabel}>Completed</Text>
         </View>
         <View style={styles.statBox}>
-          <Text style={styles.statValue}>1</Text>
+          <Text style={styles.statValue}>{failed.length}</Text>
           <Text style={styles.statLabel}>Failed</Text>
         </View>
         <View style={styles.statBox}>
-          <Text style={styles.statValue}>96.8%</Text>
-          <Text style={styles.statLabel}>Best Accuracy</Text>
+          <Text style={styles.statValue}>{formatMap50(best)}</Text>
+          <Text style={styles.statLabel}>Best mAP@50</Text>
         </View>
       </View>
 
-      <View style={styles.chartCard}>
-        <Text style={styles.sectionTitle}>Akurasi per Epoch</Text>
-        <View style={styles.chartPlaceholder}>
-          <Ionicons name="stats-chart-outline" size={48} color="#d1d5db" />
-          <Text style={styles.chartText}>Grafik akurasi training</Text>
-        </View>
-      </View>
+      {/* Kartu "mulai training" — mencerminkan pre-flight check di dashboard. */}
+      <View style={styles.startCard}>
+        <Text style={styles.sectionTitle}>Mulai Training Baru</Text>
 
-      <View style={styles.datasetCard}>
-        <Text style={styles.sectionTitle}>Dataset Distribution</Text>
-        <View style={styles.distRow}>
-          <Text style={styles.distLabel}>Training</Text>
-          <View style={styles.distBarBg}>
-            <View style={[styles.distBar, { width: "70%", backgroundColor: "#2563eb" }]} />
-          </View>
-          <Text style={styles.distValue}>1,400</Text>
-        </View>
-        <View style={styles.distRow}>
-          <Text style={styles.distLabel}>Validation</Text>
-          <View style={styles.distBarBg}>
-            <View style={[styles.distBar, { width: "20%", backgroundColor: "#16a34a" }]} />
-          </View>
-          <Text style={styles.distValue}>400</Text>
-        </View>
-        <View style={styles.distRow}>
-          <Text style={styles.distLabel}>Test</Text>
-          <View style={styles.distBarBg}>
-            <View style={[styles.distBar, { width: "10%", backgroundColor: "#ca8a04" }]} />
-          </View>
-          <Text style={styles.distValue}>200</Text>
-        </View>
-      </View>
+        {datasetQuery.isLoading ? (
+          <ActivityIndicator color="#2563eb" />
+        ) : datasetQuery.isError ? (
+          <ErrorState
+            error={datasetQuery.error}
+            onRetry={() => void datasetQuery.refetch()}
+          />
+        ) : dataset ? (
+          <>
+            <Text style={styles.datasetInfo}>
+              {dataset.approved_annotations} anotasi disetujui (minimal{" "}
+              {dataset.min_samples})
+            </Text>
 
-      <Text style={styles.sectionTitle}>Run History</Text>
-      {RUNS.map((run) => (
-        <View key={run.id} style={styles.runCard}>
-          <View style={styles.runHeader}>
-            <View>
-              <Text style={styles.runModel}>{run.model}</Text>
-              <Text style={styles.runDate}>{run.date} • {run.epochs} epochs</Text>
+            {activeRun ? (
+              <View style={styles.activeBox}>
+                <ActivityIndicator size="small" color="#2563eb" />
+                <Text style={styles.activeText}>
+                  {activeRun.name} sedang berjalan — {activeRun.progress}% (epoch{" "}
+                  {activeRun.current_epoch}/{activeRun.epochs})
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={styles.startRow}>
+              <TextInput
+                style={styles.epochInput}
+                value={epochs}
+                onChangeText={setEpochs}
+                keyboardType="number-pad"
+                placeholder="Epoch"
+                placeholderTextColor="#9ca3af"
+              />
+              <Pressable
+                style={[
+                  styles.startBtn,
+                  (startRun.isPending || !dataset.can_start || dataset.has_active_run) &&
+                    styles.startBtnDisabled,
+                ]}
+                onPress={handleStart}
+                disabled={
+                  startRun.isPending || !dataset.can_start || dataset.has_active_run
+                }
+              >
+                {startRun.isPending ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="play" size={16} color="#fff" />
+                    <Text style={styles.startText}>Mulai</Text>
+                  </>
+                )}
+              </Pressable>
             </View>
-            <StatusBadge status={run.status} />
-          </View>
-          {run.accuracy !== "-" && (
-            <View style={styles.runFooter}>
-              <Text style={styles.runAccuracy}>Accuracy: {run.accuracy}</Text>
-            </View>
-          )}
+
+            {!dataset.can_start ? (
+              <Text style={styles.warnText}>
+                Anotasi belum cukup. Labeli dulu di menu Annotation.
+              </Text>
+            ) : dataset.has_active_run ? (
+              <Text style={styles.warnText}>
+                Sudah ada training berjalan. Tunggu sampai selesai.
+              </Text>
+            ) : null}
+          </>
+        ) : null}
+      </View>
+
+      {dataset && dataset.per_class.length > 0 ? (
+        <View style={styles.datasetCard}>
+          <Text style={styles.sectionTitle}>Distribusi Dataset</Text>
+          {dataset.per_class.map((cls) => {
+            const max = Math.max(...dataset.per_class.map((c) => c.count), 1);
+            return (
+              <View key={cls.label} style={styles.distRow}>
+                <Text style={styles.distLabel} numberOfLines={1}>
+                  {cls.label}
+                </Text>
+                <View style={styles.distBarBg}>
+                  <View
+                    style={[
+                      styles.distBar,
+                      { width: `${(cls.count / max) * 100}%` },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.distValue}>{cls.count}</Text>
+              </View>
+            );
+          })}
         </View>
-      ))}
+      ) : null}
+
+      <Text style={styles.sectionTitle}>Riwayat Training</Text>
+
+      {runsQuery.isLoading ? (
+        <LoadingState label="Memuat riwayat..." />
+      ) : runsQuery.isError ? (
+        <ErrorState error={runsQuery.error} onRetry={() => void runsQuery.refetch()} />
+      ) : runs.length === 0 ? (
+        <EmptyState icon="school-outline" title="Belum ada training" />
+      ) : (
+        runs.map((run: TrainingRun) => (
+          <View key={run.id} style={styles.runCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.runName}>{run.name}</Text>
+              <Text style={styles.runMeta}>
+                {run.epochs} epoch · {formatDate(run.created_at)}
+              </Text>
+              {run.is_active ? (
+                <View style={styles.progressBg}>
+                  <View style={[styles.progressBar, { width: `${run.progress}%` }]} />
+                </View>
+              ) : null}
+              {run.error ? (
+                <Text style={styles.runError} numberOfLines={2}>
+                  {run.error}
+                </Text>
+              ) : null}
+            </View>
+            <View style={styles.runRight}>
+              <Text style={styles.runAccuracy}>{formatMap50(run.map50)}</Text>
+              <StatusBadge status={run.status_label} />
+              {run.is_active_model ? (
+                <View style={styles.liveBadge}>
+                  <Ionicons name="radio-button-on" size={12} color="#16a34a" />
+                  <Text style={styles.liveText}>Live</Text>
+                </View>
+              ) : run.status === "completed" && run.model_path ? (
+                <Pressable
+                  style={styles.activateBtn}
+                  onPress={() => void handleActivate(run)}
+                  disabled={activate.isPending}
+                >
+                  {activate.isPending && activate.variables?.id === run.id ? (
+                    <ActivityIndicator size="small" color="#2563eb" />
+                  ) : (
+                    <Text style={styles.activateText}>Aktifkan</Text>
+                  )}
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        ))
+      )}
     </ScrollView>
   );
 }
@@ -88,36 +283,77 @@ const styles = StyleSheet.create({
   statBox: {
     flex: 1,
     backgroundColor: "#fff",
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 14,
     alignItems: "center",
+    gap: 4,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 1,
   },
-  statValue: { fontSize: 20, fontFamily: "Poppins_700Bold", color: "#111827" },
-  statLabel: { fontSize: 11, fontFamily: "Poppins_400Regular", color: "#6b7280", marginTop: 2 },
-  chartCard: {
+  statValue: { fontSize: 18, fontFamily: "Poppins_700Bold", color: "#111827" },
+  statLabel: { fontSize: 11, fontFamily: "Poppins_400Regular", color: "#6b7280" },
+  sectionTitle: {
+    fontSize: 14,
+    fontFamily: "Poppins_600SemiBold",
+    color: "#111827",
+    marginBottom: 12,
+  },
+  startCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
+    gap: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 1,
   },
-  sectionTitle: { fontSize: 16, fontFamily: "Poppins_600SemiBold", color: "#111827", marginBottom: 12 },
-  chartPlaceholder: {
-    height: 120,
-    justifyContent: "center",
+  datasetInfo: { fontSize: 13, fontFamily: "Poppins_400Regular", color: "#6b7280" },
+  activeBox: {
+    flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
+    backgroundColor: "#eff6ff",
+    borderRadius: 12,
+    padding: 12,
   },
-  chartText: { fontSize: 13, fontFamily: "Poppins_400Regular", color: "#9ca3af" },
+  activeText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: "Poppins_500Medium",
+    color: "#2563eb",
+  },
+  startRow: { flexDirection: "row", gap: 10, alignItems: "center" },
+  epochInput: {
+    width: 90,
+    backgroundColor: "#f9fafb",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    fontFamily: "Poppins_400Regular",
+    color: "#111827",
+  },
+  startBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#2563eb",
+    borderRadius: 12,
+    paddingVertical: 14,
+  },
+  startBtnDisabled: { opacity: 0.5 },
+  startText: { fontSize: 15, fontFamily: "Poppins_600SemiBold", color: "#fff" },
+  warnText: { fontSize: 12, fontFamily: "Poppins_400Regular", color: "#b45309" },
   datasetCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -129,25 +365,77 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 1,
   },
-  distRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-  distLabel: { width: 80, fontSize: 13, fontFamily: "Poppins_500Medium", color: "#374151" },
-  distBarBg: { flex: 1, height: 20, backgroundColor: "#f3f4f6", borderRadius: 10, overflow: "hidden" },
-  distBar: { height: "100%", borderRadius: 10 },
-  distValue: { width: 40, fontSize: 12, fontFamily: "Poppins_600SemiBold", color: "#374151", textAlign: "right" },
+  distRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  distLabel: {
+    width: 80,
+    fontSize: 12,
+    fontFamily: "Poppins_500Medium",
+    color: "#374151",
+  },
+  distBarBg: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#f3f4f6",
+    overflow: "hidden",
+  },
+  distBar: { height: 8, borderRadius: 4, backgroundColor: "#2563eb" },
+  distValue: {
+    width: 44,
+    textAlign: "right",
+    fontSize: 12,
+    fontFamily: "Poppins_600SemiBold",
+    color: "#111827",
+  },
   runCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     backgroundColor: "#fff",
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 14,
-    marginBottom: 8,
+    marginBottom: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 1,
   },
-  runHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  runModel: { fontSize: 15, fontFamily: "Poppins_600SemiBold", color: "#111827" },
-  runDate: { fontSize: 12, fontFamily: "Poppins_400Regular", color: "#6b7280", marginTop: 2 },
-  runFooter: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#f3f4f6" },
-  runAccuracy: { fontSize: 13, fontFamily: "Poppins_500Medium", color: "#16a34a" },
+  runName: { fontSize: 14, fontFamily: "Poppins_600SemiBold", color: "#111827" },
+  runMeta: { fontSize: 12, fontFamily: "Poppins_400Regular", color: "#6b7280" },
+  runError: {
+    fontSize: 11,
+    fontFamily: "Poppins_400Regular",
+    color: "#dc2626",
+    marginTop: 4,
+  },
+  progressBg: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#f3f4f6",
+    overflow: "hidden",
+    marginTop: 6,
+  },
+  progressBar: { height: 6, borderRadius: 3, backgroundColor: "#2563eb" },
+  runRight: { alignItems: "flex-end", gap: 6 },
+  runAccuracy: { fontSize: 15, fontFamily: "Poppins_700Bold", color: "#111827" },
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#f0fdf4",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 99,
+  },
+  liveText: { fontSize: 11, fontFamily: "Poppins_600SemiBold", color: "#16a34a" },
+  activateBtn: {
+    backgroundColor: "#eff6ff",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    minWidth: 68,
+    alignItems: "center",
+  },
+  activateText: { fontSize: 11, fontFamily: "Poppins_600SemiBold", color: "#2563eb" },
 });

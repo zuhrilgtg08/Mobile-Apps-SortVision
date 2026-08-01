@@ -3,8 +3,10 @@ import {
     clearStoredAuthSession,
     loginWithEmail,
     logoutFromServer,
+    registerWithEmail,
     restoreAuthSession,
 } from "@/services/authApi";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import {
     createContext,
@@ -30,6 +32,17 @@ type AuthContextType = {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  /**
+   * Mendaftarkan akun baru. Mengembalikan `true` kalau backend langsung
+   * mengembalikan token (user sudah masuk), `false` kalau akun dibuat tapi
+   * user masih harus login manual.
+   */
+  register: (
+    name: string,
+    email: string,
+    password: string,
+    passwordConfirmation: string,
+  ) => Promise<boolean>;
   logout: () => Promise<void>;
 };
 
@@ -37,6 +50,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
@@ -46,7 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setToken(null);
     setRole(null);
-  }, []);
+    // Buang seluruh cache query: data produk/user/log milik sesi sebelumnya
+    // tidak boleh terlihat oleh akun berikutnya yang login di perangkat ini.
+    queryClient.clear();
+  }, [queryClient]);
 
   const handleUnauthorized = useCallback(() => {
     clearSessionState();
@@ -98,6 +115,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const register = useCallback(
+    async (
+      name: string,
+      email: string,
+      password: string,
+      passwordConfirmation: string,
+    ) => {
+      setIsLoading(true);
+      try {
+        const session = await registerWithEmail(
+          name,
+          email,
+          password,
+          passwordConfirmation,
+        );
+
+        if (!session) {
+          // Akun dibuat tapi backend tidak mengembalikan token — biarkan state
+          // sesi kosong supaya user diarahkan login manual.
+          return false;
+        }
+
+        setUser(session.user);
+        setToken(session.token);
+        setRole(session.role);
+        return true;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
+  );
+
   const logout = useCallback(async () => {
     const previousToken = token;
 
@@ -123,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user && !!token,
         isLoading,
         login,
+        register,
         logout,
       }}
     >

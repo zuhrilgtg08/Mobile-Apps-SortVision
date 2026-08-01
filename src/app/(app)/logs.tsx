@@ -1,67 +1,145 @@
-import { useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
+import { EmptyState, ErrorState, LoadingState, Paginator } from "@/components/QueryStates";
+import { useLogFilterOptions, useLogs } from "@/hooks/useLogs";
+import { type LogLevel } from "@/services/logApi";
 import { Ionicons } from "@expo/vector-icons";
-import StatusBadge from "@/components/StatusBadge";
-
-const LOGS = [
-  { id: 1, level: "info", message: "Sistem SortVision berhasil diinisialisasi", timestamp: "2026-07-08 10:00:00", user: "System" },
-  { id: 2, level: "warning", message: "Confidence threshold turun di bawah 80% pada ICAM-300 Line 2", timestamp: "2026-07-08 09:45:00", user: "Auto" },
-  { id: 3, level: "error", message: "Koneksi kamera ICAM-300 Line 3 terputus", timestamp: "2026-07-08 09:30:00", user: "System" },
-  { id: 4, level: "info", message: "Training model YOLOv8n v2.1 selesai (accuracy: 96.8%)", timestamp: "2026-07-08 09:00:00", user: "System" },
-  { id: 5, level: "info", message: "User Administrator berhasil login", timestamp: "2026-07-08 08:30:00", user: "admin@sortvision.id" },
-  { id: 6, level: "warning", message: "Dataset training tersisa 200 sample, disarankan menambah data", timestamp: "2026-07-08 08:00:00", user: "Auto" },
-  { id: 7, level: "info", message: "Produk Yogurt Strawberry #001 berhasil discan", timestamp: "2026-07-08 07:55:00", user: "ICAM-300 Line 1" },
-  { id: 8, level: "error", message: "Gagal menyimpan frame deteksi - disk penuh", timestamp: "2026-07-08 07:30:00", user: "System" },
-];
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 const LEVEL_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   info: "information-circle-outline",
   warning: "warning-outline",
   error: "alert-circle-outline",
+  critical: "skull-outline",
 };
 
+/** Backend mengirim nama warna Tailwind; petakan ke hex yang dipakai app. */
 const LEVEL_COLORS: Record<string, string> = {
-  info: "#2563eb",
-  warning: "#ca8a04",
-  error: "#dc2626",
+  blue: "#2563eb",
+  amber: "#ca8a04",
+  red: "#dc2626",
+  rose: "#e11d48",
+  gray: "#6b7280",
 };
+
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return "-";
+
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+
+  return date.toLocaleString("id-ID", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export default function LogsScreen() {
-  const [filter, setFilter] = useState<string | null>(null);
+  const [level, setLevel] = useState<LogLevel | "">("");
+  const [page, setPage] = useState(1);
 
-  const filtered = filter ? LOGS.filter((l) => l.level === filter) : LOGS;
+  const query = useLogs({ level, page });
+  const options = useLogFilterOptions();
+
+  const logs = query.data?.data ?? [];
+  const meta = query.data?.meta;
+  const levels = options.data?.levels ?? [];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.filters}>
-        {[null, "info", "warning", "error"].map((f) => (
+        <Pressable
+          style={[styles.filterChip, level === "" && styles.filterChipActive]}
+          onPress={() => {
+            setLevel("");
+            setPage(1);
+          }}
+        >
+          <Text style={[styles.filterText, level === "" && styles.filterTextActive]}>
+            Semua
+          </Text>
+        </Pressable>
+
+        {levels.map((option) => (
           <Pressable
-            key={f || "all"}
-            style={[styles.filterChip, filter === f && styles.filterChipActive]}
-            onPress={() => setFilter(f)}
+            key={option.key}
+            style={[styles.filterChip, level === option.key && styles.filterChipActive]}
+            onPress={() => {
+              setLevel(option.key);
+              setPage(1);
+            }}
           >
-            <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
-              {f ? f.charAt(0).toUpperCase() + f.slice(1) : "All"}
+            <Text
+              style={[
+                styles.filterText,
+                level === option.key && styles.filterTextActive,
+              ]}
+            >
+              {option.key.charAt(0).toUpperCase() + option.key.slice(1)}
             </Text>
           </Pressable>
         ))}
+
+        {query.isFetching && !query.isLoading ? (
+          <ActivityIndicator size="small" color="#9ca3af" />
+        ) : null}
       </View>
 
-      {filtered.map((log) => (
-        <View key={log.id} style={styles.logCard}>
-          <View style={styles.logHeader}>
-            <View style={styles.logLeft}>
-              <Ionicons name={LEVEL_ICONS[log.level]} size={20} color={LEVEL_COLORS[log.level]} />
-              <Text style={styles.logMessage} numberOfLines={2}>{log.message}</Text>
-            </View>
-            <StatusBadge status={log.level} />
-          </View>
-          <View style={styles.logFooter}>
-            <Text style={styles.logMeta}>{log.user}</Text>
-            <Text style={styles.logMeta}>{log.timestamp}</Text>
-          </View>
-        </View>
-      ))}
+      {query.isLoading ? (
+        <LoadingState label="Memuat log..." />
+      ) : query.isError ? (
+        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+      ) : logs.length === 0 ? (
+        <EmptyState
+          icon="document-text-outline"
+          title="Tidak ada log"
+          hint={level ? `Belum ada log level "${level}".` : undefined}
+        />
+      ) : (
+        <>
+          {logs.map((log) => {
+            const color = LEVEL_COLORS[log.level_color] ?? LEVEL_COLORS.gray;
+            return (
+              <View key={log.id} style={styles.logCard}>
+                <View style={[styles.iconWrap, { backgroundColor: color + "20" }]}>
+                  <Ionicons
+                    name={LEVEL_ICONS[log.level] ?? "ellipse-outline"}
+                    size={20}
+                    color={color}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.message}>{log.message}</Text>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaText}>{log.source}</Text>
+                    <Text style={styles.metaDot}>·</Text>
+                    <Text style={styles.metaText}>
+                      {formatTimestamp(log.logged_at)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })}
+
+          {meta ? (
+            <Paginator
+              page={meta.current_page}
+              lastPage={meta.last_page}
+              total={meta.total}
+              onChange={setPage}
+            />
+          ) : null}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -69,42 +147,51 @@ export default function LogsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16, paddingBottom: 32 },
-  filters: { flexDirection: "row", gap: 8, marginBottom: 16 },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 99,
-    backgroundColor: "#f3f4f6",
+  filters: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 16,
   },
-  filterChipActive: { backgroundColor: "#2563eb" },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  filterChipActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
   filterText: { fontSize: 13, fontFamily: "Poppins_500Medium", color: "#6b7280" },
   filterTextActive: { color: "#fff" },
   logCard: {
+    flexDirection: "row",
+    gap: 12,
     backgroundColor: "#fff",
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 14,
-    marginBottom: 8,
+    marginBottom: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 1,
   },
-  logHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 8,
+  iconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  logLeft: { flexDirection: "row", gap: 8, flex: 1, alignItems: "flex-start" },
-  logMessage: { flex: 1, fontSize: 13, fontFamily: "Poppins_400Regular", color: "#374151", lineHeight: 18 },
-  logFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#f3f4f6",
+  message: {
+    fontSize: 14,
+    fontFamily: "Poppins_500Medium",
+    color: "#111827",
+    lineHeight: 20,
   },
-  logMeta: { fontSize: 11, fontFamily: "Poppins_400Regular", color: "#9ca3af" },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  metaText: { fontSize: 12, fontFamily: "Poppins_400Regular", color: "#6b7280" },
+  metaDot: { fontSize: 12, color: "#d1d5db" },
 });

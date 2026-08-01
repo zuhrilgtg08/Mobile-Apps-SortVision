@@ -96,9 +96,67 @@ function extractErrorMessage(payload: unknown) {
     if (Array.isArray(errors) && errors.length > 0) {
       return String(errors[0]);
     }
+
+    // Laravel 422: `errors` berbentuk objek `{ field: [pesan, ...] }`.
+    if (errors && typeof errors === "object") {
+      const first = Object.values(errors as Record<string, unknown>)[0];
+      if (Array.isArray(first) && first.length > 0) {
+        return String(first[0]);
+      }
+      if (typeof first === "string") {
+        return first;
+      }
+    }
   }
 
   return "Request failed";
+}
+
+/**
+ * `403` dari API artinya role pemakai tidak punya hak atas modul ini (middleware
+ * `EnsureModuleAccess` di backend), atau akunnya dinonaktifkan — bukan sesi
+ * kadaluarsa. Layar harus menampilkan "tidak punya akses", bukan melempar user
+ * ke halaman login seperti pada `401`.
+ */
+export function isForbiddenError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 403;
+}
+
+/** `404` — resource sudah dihapus orang lain, atau id-nya salah. */
+export function isNotFoundError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 404;
+}
+
+/**
+ * Ambil error per-field dari response validasi Laravel (`422`) supaya form bisa
+ * menandai input yang bermasalah, bukan cuma menampilkan satu pesan global.
+ * Mengembalikan objek kosong kalau error-nya bukan error validasi.
+ */
+export function extractFieldErrors(
+  error: unknown,
+): Record<string, string> {
+  if (!(error instanceof ApiError) || !error.payload) {
+    return {};
+  }
+
+  const payload = error.payload as Record<string, unknown>;
+  const errors = payload.errors;
+  if (!errors || typeof errors !== "object" || Array.isArray(errors)) {
+    return {};
+  }
+
+  const result: Record<string, string> = {};
+  for (const [field, messages] of Object.entries(
+    errors as Record<string, unknown>,
+  )) {
+    if (Array.isArray(messages) && messages.length > 0) {
+      result[field] = String(messages[0]);
+    } else if (typeof messages === "string") {
+      result[field] = messages;
+    }
+  }
+
+  return result;
 }
 
 export async function apiRequest<T = unknown>(
@@ -113,14 +171,25 @@ export async function apiRequest<T = unknown>(
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  if (options.body !== undefined && !headers.has("Content-Type")) {
+  // FormData (upload gambar/avatar) harus dikirim apa adanya: fetch yang
+  // menyusun sendiri header multipart beserta boundary-nya. Menyetel
+  // Content-Type manual justru merusak boundary tersebut.
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
+
+  if (options.body !== undefined && !isFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
   const response = await fetch(buildUrl(path), {
     method: options.method ?? "GET",
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body:
+      options.body === undefined
+        ? undefined
+        : isFormData
+          ? (options.body as FormData)
+          : JSON.stringify(options.body),
   });
 
   const payload = await parseResponseBody(response);
