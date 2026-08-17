@@ -5,9 +5,22 @@ import {
 } from "@/services/notificationApi";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
+import { isRunningInExpoGo } from "expo";
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
+import type * as NotificationsType from "expo-notifications";
+
+/**
+ * SDK 57 mencabut dukungan expo-notifications di Expo Go untuk Android —
+ * bahkan `import`-nya saja langsung throw. Fitur push jadi hanya aktif di
+ * development build; di Expo Go/Android kita no-op saja dan menghindari
+ * require modulnya sama sekali.
+ */
+const PUSH_UNSUPPORTED = Platform.OS === "android" && isRunningInExpoGo();
+
+const Notifications: typeof NotificationsType | null = PUSH_UNSUPPORTED
+  ? null
+  : (require("expo-notifications") as typeof NotificationsType);
 
 /**
  * Tampilkan notifikasi walau aplikasi sedang dibuka. Tanpa handler ini Expo
@@ -17,14 +30,16 @@ import { Platform } from "react-native";
  * Catatan SDK 57: `shouldShowAlert` sudah deprecated, diganti pasangan
  * `shouldShowBanner` + `shouldShowList`.
  */
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+if (Notifications) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 function currentPlatform(): DevicePlatform | undefined {
   if (Platform.OS === "ios" || Platform.OS === "android") return Platform.OS;
@@ -41,6 +56,10 @@ function currentPlatform(): DevicePlatform | undefined {
  * kegagalannya tidak boleh menghalangi login.
  */
 async function fetchExpoPushToken(): Promise<string | null> {
+  if (!Notifications) {
+    return null;
+  }
+
   // Emulator/simulator tidak bisa menerima push; menanyakannya hanya
   // memunculkan dialog izin yang tak berguna.
   if (!Device.isDevice) {
